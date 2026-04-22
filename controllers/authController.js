@@ -29,7 +29,8 @@ const microsoftCallback = async (req, res) => {
     });
 
     const clientUrl = `${process.env.REDIRECT_URL}/auth/microsoft/success`;
-    return res.redirect(clientUrl);
+    const redirectUrl = 'http://localhost:8080/dashboard';
+    return res.redirect(redirectUrl);
   } catch (err) {
     console.error("Error during Microsoft callback:", err);
     return res
@@ -41,6 +42,7 @@ const microsoftCallback = async (req, res) => {
 const microsoftLoginSuccess = async (req, res) => {
   try {
     const { email_id: emailId } = req.user || {};
+    console.log("emailId", emailId);
     if (!emailId) {
       return res
         .status(400)

@@ -7,7 +7,12 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "db:check": "node scripts/checkConnection.js",
-    "db:migrate": "node scripts/runMigrations.js"
+    "db:migrate": "node scripts/runMigrations.js",
+    "db:seed:asset-types": "node scripts/seeds/seedAssetTypes.js",
+    "db:seed:asset-conditions": "node scripts/seeds/seedAssetConditions.js",
+    "db:seed:asset-statuses": "node scripts/seeds/seedAssetStatuses.js",
+    "db:seed:lookups": "npm run db:seed:asset-types && npm run db:seed:asset-conditions && npm run db:seed:asset-statuses",
+    "db:sync": "node scripts/syncModels.js"
   },
   "keywords": [
     "express",
@@ -25,10 +30,12 @@
     "express": "^5.0.0",
     "express-form-data": "^2.0.23",
     "express-session": "^1.19.0",
+    "joi": "^18.1.2",
     "jsonwebtoken": "^9.0.2",
     "passport": "^0.7.0",
     "passport-microsoft": "^2.1.0",
     "pg": "^8.13.1",
+    "sequelize": "^6.37.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },

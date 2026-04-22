@@ -1,0 +1,26 @@
+const Joi = require("joi");
+
+const userValidation = {
+  getUser: Joi.object().keys({
+    id: Joi.number().integer().min(1).required(),
+  }),
+
+  putUser: Joi.object()
+    .keys({
+      id: Joi.number().integer().min(1).required(),
+      display_name: Joi.string().trim().allow(null, "").optional(),
+      given_name: Joi.string().trim().allow(null, "").optional(),
+      family_name: Joi.string().trim().allow(null, "").optional(),
+      is_active: Joi.boolean().optional(),
+    })
+    .min(2)
+    .messages({
+      "object.min": "Body must include id and at least one field to update",
+    }),
+
+  deleteUser: Joi.object().keys({
+    id: Joi.number().integer().min(1).required(),
+  }),
+};
+
+module.exports = userValidation;

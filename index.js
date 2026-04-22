@@ -11,6 +11,7 @@ const passport = require("./config/passport");
 const routes = require("./routes");
 const authRoutes = require("./routes/authRoutes");
 const { mountSwagger } = require("./config/swagger");
+const Response = require("./classes/Response");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -60,8 +61,22 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  const isBadJsonBody =
+    err?.type === "entity.parse.failed" ||
+    (((err instanceof SyntaxError || err.name === "SyntaxError") &&
+      (err.status === 400 || err.statusCode === 400)) &&
+      String(err.message || "").toLowerCase().includes("json"));
+
+  if (isBadJsonBody) {
+    const hint =
+      "Fix the JSON syntax in the request body. Values that contain a straight double quote character must escape it as backslash-quote. For example, for 14 inches send name_model as \"MacBook Pro 14\\\"\" not \"MacBook Pro 14\"\".";
+    return res.status(400).json(
+      Response.sendResponse(false, null, hint, 400)
+    );
+  }
+
   console.error(err);
-  const status = err.statusCode || 500;
+  const status = err.statusCode || err.status || 500;
   res.status(status).json({
     isSuccess: false,
     result: null,

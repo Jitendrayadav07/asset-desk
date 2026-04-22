@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AssetDesk — Microsoft Login Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f3f2f1;
+      color: #323130;
+    }
+    .card {
+      background: #fff;
+      padding: 48px 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+    p.sub { margin: 0 0 32px; color: #605e5c; font-size: 14px; }
+    .ms-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #2f2f2f;
+      color: #fff;
+      border: none;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 2px;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .ms-btn:hover { background: #1f1f1f; }
+    .ms-logo {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+      width: 20px;
+      height: 20px;
+    }
+    .ms-logo span { display: block; }
+    .ms-logo span:nth-child(1) { background: #f25022; }
+    .ms-logo span:nth-child(2) { background: #7fba00; }
+    .ms-logo span:nth-child(3) { background: #00a4ef; }
+    .ms-logo span:nth-child(4) { background: #ffb900; }
+    .footer { margin-top: 32px; font-size: 12px; color: #8a8886; }
+    code { background: #edebe9; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>AssetDesk</h1>
+    <p class="sub">Sign in to test the Microsoft OAuth flow</p>
+    <a class="ms-btn" href="/api/auth/microsoft">
+      <span class="ms-logo"><span></span><span></span><span></span><span></span></span>
+      Sign in with Microsoft
+    </a>
+    <div class="footer">
+      After login you'll be redirected to <code>/auth/microsoft/success</code>
+    </div>
+  </div>
+</body>
+</html>

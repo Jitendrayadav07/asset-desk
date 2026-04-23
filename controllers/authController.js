@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const jwtConfig = require("../config/jwtTokenKey");
 const Response = require("../classes/Response");
-const User = require("../models/User");
+const db = require("../config/db.config");
+const { LOGIN_TYPE } = require("../constants/userConstants");
 const { getAuthCookieOptions } = require("../config/cookies");
 
 function resolveFrontendSuccessUrl() {
@@ -12,26 +13,72 @@ function resolveFrontendSuccessUrl() {
   return "/auth/microsoft/success";
 }
 
+function toPlain(user) {
+  return user && typeof user.get === "function"
+    ? user.get({ plain: true })
+    : user;
+}
+
 function publicUser(user) {
+  const u = toPlain(user);
   return {
-    id: user.id,
-    email: user.email,
-    display_name: user.display_name,
-    given_name: user.given_name,
-    family_name: user.family_name,
-    microsoft_id: user.microsoft_id,
-    login_type: user.login_type,
-    is_active: user.is_active,
-    last_login: user.last_login,
-    created_at: user.created_at,
+    id: u.id,
+    email: u.email,
+    display_name: u.display_name,
+    given_name: u.given_name,
+    family_name: u.family_name,
+    microsoft_id: u.microsoft_id,
+    login_type: u.login_type,
+    is_active: u.is_active,
+    last_login: u.last_login,
+    created_at: u.created_at,
   };
+}
+
+async function upsertFromMicrosoftProfile(profile) {
+  const email =
+    (profile.emails && profile.emails[0] && profile.emails[0].value) ||
+    (profile._json && (profile._json.mail || profile._json.userPrincipalName)) ||
+    null;
+
+  if (!email) {
+    throw new Error("Microsoft profile did not return an email");
+  }
+
+  const microsoftId = profile.id || null;
+  const displayName = profile.displayName || null;
+  const givenName = (profile.name && profile.name.givenName) || null;
+  const familyName = (profile.name && profile.name.familyName) || null;
+
+  const existing = await db.user.findOne({ where: { email } });
+  if (!existing) {
+    return db.user.create({
+      email,
+      display_name: displayName,
+      given_name: givenName,
+      family_name: familyName,
+      microsoft_id: microsoftId,
+      login_type: LOGIN_TYPE.MICROSOFT,
+      last_login: new Date(),
+    });
+  }
+
+  await existing.update({
+    display_name: displayName != null ? displayName : existing.display_name,
+    given_name: givenName != null ? givenName : existing.given_name,
+    family_name: familyName != null ? familyName : existing.family_name,
+    microsoft_id: microsoftId != null ? microsoftId : existing.microsoft_id,
+    login_type: LOGIN_TYPE.MICROSOFT,
+    last_login: new Date(),
+  });
+  return existing.reload();
 }
 
 const microsoftCallback = async (req, res) => {
   try {
     const profile = req.user;
 
-    const user = await User.upsertFromMicrosoftProfile(profile);
+    const user = await upsertFromMicrosoftProfile(profile);
 
     if (!user.is_active) {
       return res
@@ -45,7 +92,7 @@ const microsoftCallback = async (req, res) => {
       { expiresIn: jwtConfig.expiresIn }
     );
 
-    await User.touchLastLogin(user.id);
+    await db.user.update({ last_login: new Date() }, { where: { id: user.id } });
 
     res.cookie("microsoftAuthToken", token, {
       ...getAuthCookieOptions(),
@@ -76,14 +123,16 @@ const microsoftLoginSuccess = async (req, res) => {
         .json(Response.sendResponse(false, null, "Invalid session — no email in token", 400));
     }
 
-    const user = await User.findByEmail(emailId);
+    const user = await db.user.findOne({ where: { email: emailId } });
     if (!user) {
       return res
         .status(404)
         .json(Response.sendResponse(false, null, "User not found", 404));
     }
 
-    if (!user.is_active) {
+    const u = toPlain(user);
+
+    if (!u.is_active) {
       return res
         .status(403)
         .json(Response.sendResponse(false, null, "User is deactivated", 403));
@@ -92,16 +141,16 @@ const microsoftLoginSuccess = async (req, res) => {
     res.clearCookie("microsoftAuthToken", getAuthCookieOptions());
 
     const token = jwt.sign(
-      { user_id: user.id, email_id: user.email },
+      { user_id: u.id, email_id: u.email },
       jwtConfig.secret,
       { expiresIn: jwtConfig.expiresIn }
     );
 
-    await User.touchLastLogin(user.id);
+    await db.user.update({ last_login: new Date() }, { where: { id: u.id } });
 
     return res
       .status(200)
-      .json(Response.sendResponse(true, { ...user, token }, "Login successful", 200));
+      .json(Response.sendResponse(true, { ...u, token }, "Login successful", 200));
   } catch (err) {
     console.error("Error in microsoftLoginSuccess:", err);
     return res

@@ -1,4 +1,11 @@
+const LOGIN_TYPE = Object.freeze({
+  EMAIL: 1,
+  GOOGLE: 2,
+  MICROSOFT: 3,
+});
+
 const USER_CONSTANTS = {
+  LOGIN_TYPE,
   CREATED: "User created",
   UPDATED: "User updated",
   DELETED: "User deleted",

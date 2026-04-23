@@ -41,6 +41,7 @@ db.assetStatus = require("../models/asset_status")(sequelize, Sequelize);
 db.asset = require("../models/asset")(sequelize, Sequelize);
 db.employee = require("../models/employee")(sequelize, Sequelize);
 db.assignment = require("../models/assignment")(sequelize, Sequelize);
+db.user = require("../models/user")(sequelize, Sequelize);
 
 db.asset.belongsTo(db.assetType, { foreignKey: "asset_type_id", as: "assetType" });
 db.asset.belongsTo(db.assetStatus, { foreignKey: "asset_status_id", as: "assetStatus" });

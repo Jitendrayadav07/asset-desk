@@ -11,6 +11,7 @@
     "db:seed:asset-types": "node scripts/seeds/seedAssetTypes.js",
     "db:seed:asset-conditions": "node scripts/seeds/seedAssetConditions.js",
     "db:seed:asset-statuses": "node scripts/seeds/seedAssetStatuses.js",
+    "db:seed:dummy-user": "node scripts/seeds/seedDummyUser.js",
     "db:seed:lookups": "npm run db:seed:asset-types && npm run db:seed:asset-conditions && npm run db:seed:asset-statuses",
     "db:sync": "node scripts/syncModels.js"
   },

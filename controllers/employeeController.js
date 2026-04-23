@@ -1,6 +1,13 @@
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const EMPLOYEE_CONSTANTS = require("../constants/employeeConstants");
+const {
+  readUploadedFileBuffer,
+  parseWorkbookRows,
+  buildTemplateBuffer,
+  sendXlsxDownload,
+  str,
+} = require("./importHelpers");
 
 function uniqueViolationMessage(err) {
   const detail = err.parent?.detail || err.original?.detail || "";
@@ -183,6 +190,125 @@ const rejoinEmployee = async (req, res) => {
   }
 };
 
+const EMPLOYEE_TEMPLATE_HEADERS = ["name", "email", "location", "emp_id"];
+
+const downloadEmployeeTemplate = async (_req, res) => {
+  try {
+    const buffer = buildTemplateBuffer({
+      headers: EMPLOYEE_TEMPLATE_HEADERS,
+      examples: [
+        ["Jane Cooper", "jane.cooper@acme.co", "Pune", "E-1001"],
+        ["Aarav Sharma", "aarav.sharma@acme.co", "Bangalore", "E-1002"],
+      ],
+      instructions: [
+        "InventoryPro — Employee import template",
+        "",
+        "All four columns are required: name, email, location, emp_id.",
+        "",
+        "email must be unique across the directory.",
+        "emp_id must be unique across the directory.",
+        "location should match one of: Pune, Mumbai, Bangalore, Chennai, Hyderabad, Delhi.",
+      ],
+    });
+    return sendXlsxDownload(res, "employee_import_template.xlsx", buffer);
+  } catch (err) {
+    console.error("downloadEmployeeTemplate", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+function basicEmailValid(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+const importEmployees = async (req, res) => {
+  try {
+    const buffer = readUploadedFileBuffer(req, "file");
+    if (!buffer) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "No file uploaded. Send the xlsx file as a multipart 'file' field.",
+            400
+          )
+        );
+    }
+
+    const rows = parseWorkbookRows(buffer);
+    if (!rows.length) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, "Spreadsheet has no data rows.", 400));
+    }
+
+    const created = [];
+    const errors = [];
+    let rowIndex = 1;
+    for (const raw of rows) {
+      rowIndex += 1;
+      try {
+        const name = str(raw.name);
+        const email = str(raw.email);
+        const location = str(raw.location);
+        const emp_id = str(raw.emp_id);
+
+        if (!name) throw new Error("name is required");
+        if (!email) throw new Error("email is required");
+        if (!basicEmailValid(email)) throw new Error(`Invalid email '${email}'`);
+        if (!location) throw new Error("location is required");
+        if (!emp_id) throw new Error("emp_id is required");
+
+        const row = await db.employee.create({ name, email, location, emp_id });
+        created.push({ id: row.id, emp_id: row.emp_id });
+      } catch (err) {
+        let msg = err.message || "Insert failed";
+        if (err.name === "SequelizeUniqueConstraintError") {
+          const detail = (err.parent?.detail || err.original?.detail || "").toLowerCase();
+          const constraint = (err.parent?.constraint || err.original?.constraint || "").toLowerCase();
+          if (detail.includes("email") || constraint.includes("email")) {
+            msg = EMPLOYEE_CONSTANTS.DUPLICATE_EMAIL;
+          } else if (detail.includes("emp_id") || constraint.includes("emp")) {
+            msg = EMPLOYEE_CONSTANTS.DUPLICATE_EMP_ID;
+          }
+        }
+        errors.push({ row: rowIndex, error: msg });
+      }
+    }
+
+    return res.status(200).json(
+      Response.sendResponse(
+        true,
+        {
+          total: rows.length,
+          created: created.length,
+          failed: errors.length,
+          created_items: created,
+          errors,
+        },
+        `Imported ${created.length} of ${rows.length}`,
+        200
+      )
+    );
+  } catch (err) {
+    console.error("importEmployees", err);
+    return res
+      .status(500)
+      .json(
+        Response.sendResponse(
+          false,
+          null,
+          err.message || EMPLOYEE_CONSTANTS.ERROR_OCCURED,
+          500
+        )
+      );
+  }
+};
+
 module.exports = {
   createEmployee,
   getAllEmployees,
@@ -191,4 +317,6 @@ module.exports = {
   deleteEmployee,
   markEmployeeLeft,
   rejoinEmployee,
+  downloadEmployeeTemplate,
+  importEmployees,
 };

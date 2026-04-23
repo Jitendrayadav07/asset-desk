@@ -1,0 +1,31 @@
+const Joi = require("joi");
+
+const assignmentValidation = {
+  createAssignment: Joi.object().keys({
+    asset_id: Joi.number().integer().min(1).required(),
+    employee_id: Joi.number().integer().min(1).required(),
+    hostname: Joi.string().trim().min(1).max(255).required(),
+    aid: Joi.string().trim().min(1).max(255).required(),
+    note: Joi.string().trim().max(2000).optional().allow(null, ""),
+    assigned_by: Joi.string().trim().max(255).optional().allow(null, ""),
+  }),
+
+  getAllQuery: Joi.object()
+    .keys({
+      status: Joi.string().valid("active", "returned", "all").optional(),
+      asset_id: Joi.number().integer().min(1).optional(),
+      employee_id: Joi.number().integer().min(1).optional(),
+    })
+    .unknown(true),
+
+  idParam: Joi.object().keys({
+    id: Joi.number().integer().min(1).required(),
+  }),
+
+  unassignBody: Joi.object().keys({
+    reason: Joi.string().trim().min(1).max(2000).required(),
+    unassigned_by: Joi.string().trim().max(255).optional().allow(null, ""),
+  }),
+};
+
+module.exports = assignmentValidation;

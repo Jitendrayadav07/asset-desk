@@ -2,6 +2,15 @@ const { Op } = require("sequelize");
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const ASSET_CONSTANTS = require("../constants/assetConstants");
+const {
+  readUploadedFileBuffer,
+  parseWorkbookRows,
+  buildTemplateBuffer,
+  sendXlsxDownload,
+  str,
+  dateYMD,
+  num,
+} = require("./importHelpers");
 
 const includeLookups = [
   { model: db.assetType, as: "assetType", attributes: ["id", "name"] },
@@ -237,6 +246,29 @@ async function findStatusIdByName(name) {
   return row ? row.id : null;
 }
 
+// Closes any active assignment (unassigned_at IS NULL) for the given asset.
+// Returns the freshly-closed assignment record (with its employee joined) or
+// null if there was nothing to close. Must run inside a transaction.
+async function closeActiveAssignmentForAsset(assetId, { reason, unassignedBy }, t) {
+  const active = await db.assignment.findOne({
+    where: { asset_id: assetId, unassigned_at: null },
+    transaction: t,
+  });
+  if (!active) return null;
+  await db.assignment.update(
+    {
+      unassigned_at: new Date(),
+      unassigned_reason: reason,
+      unassigned_by: unassignedBy || null,
+    },
+    { where: { id: active.id }, transaction: t }
+  );
+  return db.assignment.findByPk(active.id, {
+    include: [{ model: db.employee, as: "employee" }],
+    transaction: t,
+  });
+}
+
 const retireAsset = async (req, res) => {
   try {
     const existing = await db.asset.findByPk(req.params.id);
@@ -263,24 +295,42 @@ const retireAsset = async (req, res) => {
       ? String(req.body.retired_by).trim()
       : null;
 
-    await db.asset.update(
-      {
-        asset_status_id: retiredStatusId,
-        retired_at: new Date(),
-        retired_reason: reason,
-        retired_by: retiredBy || null,
-        missing_since: null,
-        missing_reason: null,
-        last_known_location: null,
-        reported_by: null,
-      },
-      { where: { id: existing.id } }
-    );
+    const { updated, closedAssignment } = await db.sequelize.transaction(async (t) => {
+      const closedAssignment = await closeActiveAssignmentForAsset(
+        existing.id,
+        {
+          reason: `Asset marked as end-of-life: ${reason}`,
+          unassignedBy: retiredBy,
+        },
+        t
+      );
 
-    const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+      await db.asset.update(
+        {
+          asset_status_id: retiredStatusId,
+          retired_at: new Date(),
+          retired_reason: reason,
+          retired_by: retiredBy || null,
+          missing_since: null,
+          missing_reason: null,
+          last_known_location: null,
+          reported_by: null,
+        },
+        { where: { id: existing.id }, transaction: t }
+      );
+
+      const updated = await db.asset.findByPk(existing.id, {
+        include: includeLookups,
+        transaction: t,
+      });
+      return { updated, closedAssignment };
+    });
+
+    const payload = updated.toJSON();
+    payload.closed_assignment = closedAssignment;
     return res
       .status(200)
-      .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.RETIRED, 200));
+      .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.RETIRED, 200));
   } catch (err) {
     console.error("retireAsset", err);
     return res
@@ -318,24 +368,42 @@ const reportMissingAsset = async (req, res) => {
       ? String(req.body.reported_by).trim()
       : null;
 
-    await db.asset.update(
-      {
-        asset_status_id: missingStatusId,
-        missing_since: new Date(),
-        missing_reason: reason,
-        last_known_location: lastKnown || existing.location,
-        reported_by: reportedBy || null,
-        retired_at: null,
-        retired_reason: null,
-        retired_by: null,
-      },
-      { where: { id: existing.id } }
-    );
+    const { updated, closedAssignment } = await db.sequelize.transaction(async (t) => {
+      const closedAssignment = await closeActiveAssignmentForAsset(
+        existing.id,
+        {
+          reason: `Asset reported missing: ${reason}`,
+          unassignedBy: reportedBy,
+        },
+        t
+      );
 
-    const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+      await db.asset.update(
+        {
+          asset_status_id: missingStatusId,
+          missing_since: new Date(),
+          missing_reason: reason,
+          last_known_location: lastKnown || existing.location,
+          reported_by: reportedBy || null,
+          retired_at: null,
+          retired_reason: null,
+          retired_by: null,
+        },
+        { where: { id: existing.id }, transaction: t }
+      );
+
+      const updated = await db.asset.findByPk(existing.id, {
+        include: includeLookups,
+        transaction: t,
+      });
+      return { updated, closedAssignment };
+    });
+
+    const payload = updated.toJSON();
+    payload.closed_assignment = closedAssignment;
     return res
       .status(200)
-      .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.MISSING_REPORTED, 200));
+      .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.MISSING_REPORTED, 200));
   } catch (err) {
     console.error("reportMissingAsset", err);
     return res
@@ -393,6 +461,204 @@ const restoreAsset = async (req, res) => {
   }
 };
 
+const ASSET_TEMPLATE_HEADERS = [
+  "serial_number",
+  "asset_type",
+  "asset_status",
+  "asset_condition",
+  "name_model",
+  "brand",
+  "model_number",
+  "configuration_specs",
+  "location",
+  "purchase_date",
+  "price_usd",
+];
+
+const downloadAssetTemplate = async (_req, res) => {
+  try {
+    const buffer = buildTemplateBuffer({
+      headers: ASSET_TEMPLATE_HEADERS,
+      examples: [
+        [
+          "SN-A100",
+          "Laptop",
+          "active",
+          "new",
+          'MacBook Pro 14"',
+          "Apple",
+          "A2918",
+          "M3 Pro / 18GB / 512GB",
+          "Pune",
+          "2024-03-10",
+          2199,
+        ],
+        [
+          "SN-M045",
+          "Monitor",
+          "active",
+          "good",
+          'Dell UltraSharp 27"',
+          "Dell",
+          "U2723QE",
+          "27\" / 4K / IPS Black",
+          "Mumbai",
+          "2023-06-10",
+          649,
+        ],
+      ],
+      instructions: [
+        "InventoryPro — Asset import template",
+        "",
+        "Required columns: serial_number, asset_type, name_model, brand, location.",
+        "Optional: asset_status, asset_condition, model_number, configuration_specs, purchase_date, price_usd.",
+        "",
+        "asset_type / asset_status / asset_condition must match existing lookup names",
+        "(case-insensitive). Examples: asset_type=Laptop; asset_status=active/maintenance/retired/missing;",
+        "asset_condition=new/good/fair/poor.",
+        "",
+        "purchase_date format: YYYY-MM-DD (e.g. 2024-03-10). price_usd: plain number.",
+        "serial_number must be unique across the inventory.",
+      ],
+    });
+    return sendXlsxDownload(res, "asset_import_template.xlsx", buffer);
+  } catch (err) {
+    console.error("downloadAssetTemplate", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+const importAssets = async (req, res) => {
+  try {
+    const buffer = readUploadedFileBuffer(req, "file");
+    if (!buffer) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "No file uploaded. Send the xlsx file as a multipart 'file' field.",
+            400
+          )
+        );
+    }
+
+    const rows = parseWorkbookRows(buffer);
+    if (!rows.length) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, "Spreadsheet has no data rows.", 400));
+    }
+
+    // Pre-load lookup maps (name-lowercase → id) so we can resolve FKs per row
+    // in one pass instead of N DB round-trips.
+    const [types, statuses, conditions] = await Promise.all([
+      db.assetType.findAll(),
+      db.assetStatus.findAll(),
+      db.assetCondition.findAll(),
+    ]);
+    const typeByName = new Map(types.map((t) => [t.name.toLowerCase(), t.id]));
+    const statusByName = new Map(statuses.map((s) => [s.name.toLowerCase(), s.id]));
+    const conditionByName = new Map(
+      conditions.map((c) => [c.name.toLowerCase(), c.id])
+    );
+
+    const created = [];
+    const errors = [];
+    // Row numbering starts at 2 to account for header row.
+    let rowIndex = 1;
+    for (const raw of rows) {
+      rowIndex += 1;
+      try {
+        const serial_number = str(raw.serial_number);
+        const typeName = str(raw.asset_type);
+        const statusName = str(raw.asset_status);
+        const conditionName = str(raw.asset_condition);
+        const name_model = str(raw.name_model);
+        const brand = str(raw.brand);
+        const model_number = str(raw.model_number);
+        const configuration_specs = str(raw.configuration_specs);
+        const location = str(raw.location);
+        const purchase_date = dateYMD(raw.purchase_date);
+        const price_usd = num(raw.price_usd);
+
+        if (!serial_number) throw new Error("serial_number is required");
+        if (!typeName) throw new Error("asset_type is required");
+        if (!name_model) throw new Error("name_model is required");
+        if (!brand) throw new Error("brand is required");
+        if (!location) throw new Error("location is required");
+
+        const asset_type_id = typeByName.get(typeName.toLowerCase());
+        if (!asset_type_id) {
+          throw new Error(`Unknown asset_type '${typeName}'`);
+        }
+        let asset_status_id = null;
+        if (statusName) {
+          asset_status_id = statusByName.get(statusName.toLowerCase()) ?? null;
+          if (!asset_status_id) throw new Error(`Unknown asset_status '${statusName}'`);
+        }
+        let asset_condition_id = null;
+        if (conditionName) {
+          asset_condition_id = conditionByName.get(conditionName.toLowerCase()) ?? null;
+          if (!asset_condition_id)
+            throw new Error(`Unknown asset_condition '${conditionName}'`);
+        }
+
+        const row = await db.asset.create({
+          serial_number,
+          asset_type_id,
+          asset_status_id,
+          asset_condition_id,
+          name_model,
+          brand,
+          model_number,
+          configuration_specs,
+          location,
+          purchase_date,
+          price_usd,
+        });
+        created.push({ id: row.id, serial_number: row.serial_number });
+      } catch (err) {
+        let msg = err.message || "Insert failed";
+        if (err.name === "SequelizeUniqueConstraintError") {
+          msg = ASSET_CONSTANTS.SERIAL_EXISTS;
+        }
+        errors.push({ row: rowIndex, error: msg });
+      }
+    }
+
+    return res.status(200).json(
+      Response.sendResponse(
+        true,
+        {
+          total: rows.length,
+          created: created.length,
+          failed: errors.length,
+          created_items: created,
+          errors,
+        },
+        `Imported ${created.length} of ${rows.length}`,
+        200
+      )
+    );
+  } catch (err) {
+    console.error("importAssets", err);
+    return res
+      .status(500)
+      .json(
+        Response.sendResponse(
+          false,
+          null,
+          err.message || ASSET_CONSTANTS.ERROR_OCCURED,
+          500
+        )
+      );
+  }
+};
+
 module.exports = {
   createAsset,
   getAllAssets,
@@ -402,4 +668,6 @@ module.exports = {
   retireAsset,
   reportMissingAsset,
   restoreAsset,
+  downloadAssetTemplate,
+  importAssets,
 };

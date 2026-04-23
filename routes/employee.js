@@ -13,6 +13,61 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
  *     description: Employee directory (name, email, location, emp_id)
  */
 
+// IMPORTANT: literal paths (/import-template, /import) must be declared
+// BEFORE the /:id routes below — Express matches routes in registration
+// order, and /:id would otherwise greedily catch /import-template and fail
+// Joi validation with "id must be a number".
+
+/**
+ * @openapi
+ * /employee/import-template:
+ *   get:
+ *     tags: [Employees]
+ *     summary: Download an xlsx template for bulk employee import
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: An xlsx file
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {}
+ */
+router.get("/import-template", jwtMiddleware, employeeController.downloadEmployeeTemplate);
+
+/**
+ * @openapi
+ * /employee/import:
+ *   post:
+ *     tags: [Employees]
+ *     summary: Bulk-import employees from an xlsx/csv file
+ *     description: >
+ *       Upload the filled template as multipart/form-data with field name
+ *       `file`. Each row is validated and inserted independently; the
+ *       response reports created count + row-level errors.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Import completed (partial successes are still 200)
+ *       400:
+ *         description: No file or empty spreadsheet
+ *       401:
+ *         description: Missing or invalid JWT
+ *       500:
+ *         description: Server error
+ */
+router.post("/import", jwtMiddleware, employeeController.importEmployees);
+
 /**
  * @openapi
  * /employee/create-employee:

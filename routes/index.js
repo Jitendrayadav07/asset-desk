@@ -7,6 +7,8 @@ const assetStatusRoutes = require("./assetStatus");
 const assetRoutes = require("./asset");
 const userRoutes = require("./user");
 const employeeRoutes = require("./employee");
+const assignmentRoutes = require("./assignment");
+const dashboardRoutes = require("./dashboard");
 
 router.use("/asset-type", assetTypeRoutes);
 router.use("/asset-condition", assetConditionRoutes);
@@ -14,6 +16,8 @@ router.use("/asset-status", assetStatusRoutes);
 router.use("/asset", assetRoutes);
 router.use("/user", userRoutes);
 router.use("/employee", employeeRoutes);
+router.use("/assignment", assignmentRoutes);
+router.use("/dashboard", dashboardRoutes);
 
 router.get("/health", (req, res) => {
   res.json({

@@ -39,10 +39,16 @@ db.assetCondition = require("../models/asset_condition")(sequelize, Sequelize);
 db.assetStatus = require("../models/asset_status")(sequelize, Sequelize);
 db.asset = require("../models/asset")(sequelize, Sequelize);
 db.employee = require("../models/employee")(sequelize, Sequelize);
+db.assignment = require("../models/assignment")(sequelize, Sequelize);
 
 db.asset.belongsTo(db.assetType, { foreignKey: "asset_type_id", as: "assetType" });
 db.asset.belongsTo(db.assetStatus, { foreignKey: "asset_status_id", as: "assetStatus" });
 db.asset.belongsTo(db.assetCondition, { foreignKey: "asset_condition_id", as: "assetCondition" });
+
+db.assignment.belongsTo(db.asset, { foreignKey: "asset_id", as: "asset" });
+db.assignment.belongsTo(db.employee, { foreignKey: "employee_id", as: "employee" });
+db.asset.hasMany(db.assignment, { foreignKey: "asset_id", as: "assignments" });
+db.employee.hasMany(db.assignment, { foreignKey: "employee_id", as: "assignments" });
 
 sequelize
   .authenticate()

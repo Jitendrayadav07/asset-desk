@@ -12,6 +12,46 @@ function normalizePatch(body) {
   return patch;
 }
 
+const createUser = async (req, res) => {
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (!email) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, USER_CONSTANTS.ERROR_OCCURED, 400));
+    }
+
+    const existing = await User.findByEmail(email);
+    if (existing) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, USER_CONSTANTS.DUPLICATE_EMAIL, 400));
+    }
+
+    const created = await User.create({
+      email,
+      display_name: req.body.display_name ? String(req.body.display_name).trim() : null,
+      given_name: req.body.given_name ? String(req.body.given_name).trim() : null,
+      family_name: req.body.family_name ? String(req.body.family_name).trim() : null,
+      is_active: req.body.is_active !== undefined ? Boolean(req.body.is_active) : true,
+    });
+
+    return res
+      .status(201)
+      .json(Response.sendResponse(true, created, USER_CONSTANTS.CREATED, 201));
+  } catch (err) {
+    if (err && err.code === "23505") {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, USER_CONSTANTS.DUPLICATE_EMAIL, 400));
+    }
+    console.error("createUser", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, USER_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
 const getAllUsers = async (req, res) => {
   try {
     const rows = await User.findAll();
@@ -87,6 +127,7 @@ const deleteUser = async (req, res) => {
 };
 
 module.exports = {
+  createUser,
   getAllUsers,
   findUserById,
   updateUser,

@@ -227,10 +227,179 @@ const deleteAsset = async (req, res) => {
   }
 };
 
+async function findStatusIdByName(name) {
+  const row = await db.assetStatus.findOne({
+    where: db.sequelize.where(
+      db.sequelize.fn("LOWER", db.sequelize.col("name")),
+      String(name).toLowerCase()
+    ),
+  });
+  return row ? row.id : null;
+}
+
+const retireAsset = async (req, res) => {
+  try {
+    const existing = await db.asset.findByPk(req.params.id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
+    }
+    if (existing.retired_at) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ALREADY_RETIRED, 400));
+    }
+
+    const retiredStatusId = await findStatusIdByName("retired");
+    if (!retiredStatusId) {
+      return res
+        .status(500)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500));
+    }
+
+    const reason = String(req.body.reason || "").trim();
+    const retiredBy = req.body.retired_by
+      ? String(req.body.retired_by).trim()
+      : null;
+
+    await db.asset.update(
+      {
+        asset_status_id: retiredStatusId,
+        retired_at: new Date(),
+        retired_reason: reason,
+        retired_by: retiredBy || null,
+        missing_since: null,
+        missing_reason: null,
+        last_known_location: null,
+        reported_by: null,
+      },
+      { where: { id: existing.id } }
+    );
+
+    const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.RETIRED, 200));
+  } catch (err) {
+    console.error("retireAsset", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+const reportMissingAsset = async (req, res) => {
+  try {
+    const existing = await db.asset.findByPk(req.params.id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
+    }
+    if (existing.missing_since) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ALREADY_MISSING, 400));
+    }
+
+    const missingStatusId = await findStatusIdByName("missing");
+    if (!missingStatusId) {
+      return res
+        .status(500)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500));
+    }
+
+    const reason = String(req.body.reason || "").trim();
+    const lastKnown = req.body.last_known_location
+      ? String(req.body.last_known_location).trim()
+      : null;
+    const reportedBy = req.body.reported_by
+      ? String(req.body.reported_by).trim()
+      : null;
+
+    await db.asset.update(
+      {
+        asset_status_id: missingStatusId,
+        missing_since: new Date(),
+        missing_reason: reason,
+        last_known_location: lastKnown || existing.location,
+        reported_by: reportedBy || null,
+        retired_at: null,
+        retired_reason: null,
+        retired_by: null,
+      },
+      { where: { id: existing.id } }
+    );
+
+    const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.MISSING_REPORTED, 200));
+  } catch (err) {
+    console.error("reportMissingAsset", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+const restoreAsset = async (req, res) => {
+  try {
+    const existing = await db.asset.findByPk(req.params.id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
+    }
+    if (!existing.retired_at && !existing.missing_since) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_RETIRED_OR_MISSING, 400)
+        );
+    }
+
+    const activeStatusId = await findStatusIdByName("active");
+    if (!activeStatusId) {
+      return res
+        .status(500)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500));
+    }
+
+    await db.asset.update(
+      {
+        asset_status_id: activeStatusId,
+        retired_at: null,
+        retired_reason: null,
+        retired_by: null,
+        missing_since: null,
+        missing_reason: null,
+        last_known_location: null,
+        reported_by: null,
+      },
+      { where: { id: existing.id } }
+    );
+
+    const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.RESTORED, 200));
+  } catch (err) {
+    console.error("restoreAsset", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
 module.exports = {
   createAsset,
   getAllAssets,
   findAssetById,
   updateAsset,
   deleteAsset,
+  retireAsset,
+  reportMissingAsset,
+  restoreAsset,
 };

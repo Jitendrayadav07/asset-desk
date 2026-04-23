@@ -1,6 +1,14 @@
 const Joi = require("joi");
 
 const userValidation = {
+  createUser: Joi.object().keys({
+    email: Joi.string().trim().email().required(),
+    display_name: Joi.string().trim().max(255).optional().allow(null, ""),
+    given_name: Joi.string().trim().max(120).optional().allow(null, ""),
+    family_name: Joi.string().trim().max(120).optional().allow(null, ""),
+    is_active: Joi.boolean().optional(),
+  }),
+
   getUser: Joi.object().keys({
     id: Joi.number().integer().min(1).required(),
   }),

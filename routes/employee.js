@@ -143,4 +143,105 @@ router.delete(
   employeeController.deleteEmployee
 );
 
+/**
+ * @openapi
+ * /employee/{id}/left-job:
+ *   post:
+ *     tags: [Employees]
+ *     summary: Mark employee as left the job
+ *     description: >
+ *       Records that the employee has left: stamps `left_at` to now, stores the
+ *       reason, and (optionally) who recorded it. Fails if the employee is
+ *       already marked as left.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Resigned effective 2026-05-01
+ *               left_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Employee marked as left
+ *       400:
+ *         description: Already left or validation error
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Employee not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/left-job",
+  jwtMiddleware,
+  JoiMiddleWare(employeeValidation.lifecycleParams, "params"),
+  JoiMiddleWare(employeeValidation.leftJobBody, "body"),
+  employeeController.markEmployeeLeft
+);
+
+/**
+ * @openapi
+ * /employee/{id}/rejoin:
+ *   post:
+ *     tags: [Employees]
+ *     summary: Rejoin a former employee
+ *     description: >
+ *       Clears the "left the job" metadata (`left_at`, `left_reason`, `left_by`)
+ *       so the employee is active again. Fails if the employee has not left.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               rejoined_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Employee rejoined
+ *       400:
+ *         description: Employee has not left
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Employee not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/rejoin",
+  jwtMiddleware,
+  JoiMiddleWare(employeeValidation.lifecycleParams, "params"),
+  JoiMiddleWare(employeeValidation.rejoinBody, "body"),
+  employeeController.rejoinEmployee
+);
+
 module.exports = router;

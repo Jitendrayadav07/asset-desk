@@ -15,6 +15,48 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
 
 /**
  * @openapi
+ * /user/create-user:
+ *   post:
+ *     tags: [Users]
+ *     summary: Create a user (local)
+ *     description: >
+ *       Admin-created user record. `login_type` defaults to 1 (email) and
+ *       `microsoft_id` is null. If the same email later signs in via Microsoft,
+ *       the upsert on login links the `microsoft_id` and bumps `login_type` to 3.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:         { type: string, format: email }
+ *               display_name:  { type: string, nullable: true }
+ *               given_name:    { type: string, nullable: true }
+ *               family_name:   { type: string, nullable: true }
+ *               is_active:     { type: boolean, default: true }
+ *     responses:
+ *       201:
+ *         description: Created
+ *       400:
+ *         description: Validation error or duplicate email
+ *       401:
+ *         description: Missing or invalid JWT
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/create-user",
+  jwtMiddleware,
+  JoiMiddleWare(userValidation.createUser, "body"),
+  userController.createUser
+);
+
+/**
+ * @openapi
  * /user/get-all-users:
  *   get:
  *     tags: [Users]

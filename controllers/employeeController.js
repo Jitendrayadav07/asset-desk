@@ -110,10 +110,85 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
+const markEmployeeLeft = async (req, res) => {
+  try {
+    const existing = await db.employee.findByPk(req.params.id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.NOT_FOUND, 404));
+    }
+    if (existing.left_at) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.ALREADY_LEFT, 400));
+    }
+
+    const reason = String(req.body.reason || "").trim();
+    const leftBy = req.body.left_by ? String(req.body.left_by).trim() : null;
+
+    await db.employee.update(
+      {
+        left_at: new Date(),
+        left_reason: reason,
+        left_by: leftBy || null,
+      },
+      { where: { id: existing.id } }
+    );
+
+    const updated = await db.employee.findByPk(existing.id);
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, updated, EMPLOYEE_CONSTANTS.LEFT_JOB, 200));
+  } catch (err) {
+    console.error("markEmployeeLeft", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+const rejoinEmployee = async (req, res) => {
+  try {
+    const existing = await db.employee.findByPk(req.params.id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.NOT_FOUND, 404));
+    }
+    if (!existing.left_at) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.NOT_LEFT, 400));
+    }
+
+    await db.employee.update(
+      {
+        left_at: null,
+        left_reason: null,
+        left_by: null,
+      },
+      { where: { id: existing.id } }
+    );
+
+    const updated = await db.employee.findByPk(existing.id);
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, updated, EMPLOYEE_CONSTANTS.REJOINED, 200));
+  } catch (err) {
+    console.error("rejoinEmployee", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
 module.exports = {
   createEmployee,
   getAllEmployees,
   findEmployeeById,
   updateEmployee,
   deleteEmployee,
+  markEmployeeLeft,
+  rejoinEmployee,
 };

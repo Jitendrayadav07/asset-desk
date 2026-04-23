@@ -200,4 +200,164 @@ router.delete(
   assetController.deleteAsset
 );
 
+/**
+ * @openapi
+ * /asset/{id}/retire:
+ *   post:
+ *     tags: [Assets]
+ *     summary: Mark asset as end-of-life
+ *     description: >
+ *       Transitions the asset to the `retired` state, records the reason / retired_by,
+ *       and clears any missing-asset metadata. Sets `asset_status_id` to the
+ *       `retired` lookup row.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Hardware failure — battery swollen beyond repair
+ *               retired_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Asset marked as end-of-life
+ *       400:
+ *         description: Already retired or validation error
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Asset not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/retire",
+  jwtMiddleware,
+  JoiMiddleWare(assetValidation.lifecycleParams, "params"),
+  JoiMiddleWare(assetValidation.retireAssetBody, "body"),
+  assetController.retireAsset
+);
+
+/**
+ * @openapi
+ * /asset/{id}/report-missing:
+ *   post:
+ *     tags: [Assets]
+ *     summary: Report asset as missing / lost
+ *     description: >
+ *       Transitions the asset to the `missing` state, records the reason,
+ *       optional last-known-location, and who reported it. Clears any
+ *       end-of-life metadata. Sets `asset_status_id` to the `missing`
+ *       lookup row.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Not returned after offboarding
+ *               last_known_location:
+ *                 type: string
+ *                 nullable: true
+ *                 example: Mumbai office · Desk 14
+ *               reported_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Asset reported missing
+ *       400:
+ *         description: Already missing or validation error
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Asset not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/report-missing",
+  jwtMiddleware,
+  JoiMiddleWare(assetValidation.lifecycleParams, "params"),
+  JoiMiddleWare(assetValidation.reportMissingBody, "body"),
+  assetController.reportMissingAsset
+);
+
+/**
+ * @openapi
+ * /asset/{id}/restore:
+ *   post:
+ *     tags: [Assets]
+ *     summary: Restore retired / missing asset to active
+ *     description: >
+ *       Clears retired and missing metadata and sets `asset_status_id` to the
+ *       `active` lookup row. Fails if the asset is not currently retired or
+ *       missing.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               restored_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Asset restored
+ *       400:
+ *         description: Asset is not retired or missing
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Asset not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/restore",
+  jwtMiddleware,
+  JoiMiddleWare(assetValidation.lifecycleParams, "params"),
+  JoiMiddleWare(assetValidation.restoreAssetBody, "body"),
+  assetController.restoreAsset
+);
+
 module.exports = router;

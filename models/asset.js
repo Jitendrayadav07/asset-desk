@@ -54,6 +54,34 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: true,
       },
+      retired_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      retired_reason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      retired_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      missing_since: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      missing_reason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      last_known_location: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      reported_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
     },
     {
       tableName: "assets",

@@ -2,6 +2,30 @@ const jwt = require("jsonwebtoken");
 const jwtConfig = require("../config/jwtTokenKey");
 const Response = require("../classes/Response");
 const User = require("../models/User");
+const { getAuthCookieOptions } = require("../config/cookies");
+
+function resolveFrontendSuccessUrl() {
+  const explicit = process.env.FRONTEND_POST_LOGIN_REDIRECT;
+  if (explicit) return explicit;
+  const origin = process.env.CLIENT_ORIGIN;
+  if (origin) return `${origin.replace(/\/$/, "")}/auth/microsoft/success`;
+  return "/auth/microsoft/success";
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    display_name: user.display_name,
+    given_name: user.given_name,
+    family_name: user.family_name,
+    microsoft_id: user.microsoft_id,
+    login_type: user.login_type,
+    is_active: user.is_active,
+    last_login: user.last_login,
+    created_at: user.created_at,
+  };
+}
 
 const microsoftCallback = async (req, res) => {
   try {
@@ -18,19 +42,22 @@ const microsoftCallback = async (req, res) => {
     const token = jwt.sign(
       { user_id: user.id, email_id: user.email },
       jwtConfig.secret,
-      { expiresIn: "24h" }
+      { expiresIn: jwtConfig.expiresIn }
     );
 
+    await User.touchLastLogin(user.id);
+
     res.cookie("microsoftAuthToken", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      ...getAuthCookieOptions(),
       maxAge: 24 * 60 * 60 * 1000,
     });
 
-    const clientUrl = `${process.env.REDIRECT_URL}/auth/microsoft/success`;
-    const redirectUrl = 'http://localhost:8080/dashboard';
-    return res.redirect(redirectUrl);
+    const fragment = Buffer.from(
+      JSON.stringify({ token, user: publicUser(user) }),
+      "utf8"
+    ).toString("base64url");
+
+    return res.redirect(`${resolveFrontendSuccessUrl()}#auth=${fragment}`);
   } catch (err) {
     console.error("Error during Microsoft callback:", err);
     return res
@@ -62,7 +89,7 @@ const microsoftLoginSuccess = async (req, res) => {
         .json(Response.sendResponse(false, null, "User is deactivated", 403));
     }
 
-    res.clearCookie("microsoftAuthToken");
+    res.clearCookie("microsoftAuthToken", getAuthCookieOptions());
 
     const token = jwt.sign(
       { user_id: user.id, email_id: user.email },

@@ -26,6 +26,18 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
+      left_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      left_reason: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      left_by: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
     },
     {
       tableName: "employees",

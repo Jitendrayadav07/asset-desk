@@ -116,6 +116,25 @@ const User = {
     const { rowCount } = await query(`DELETE FROM ${TABLE} WHERE id = $1`, [id]);
     return rowCount;
   },
+
+  async create({
+    email,
+    display_name = null,
+    given_name = null,
+    family_name = null,
+    is_active = true,
+    login_type = LOGIN_TYPE.EMAIL,
+  }) {
+    const { rows } = await query(
+      `INSERT INTO ${TABLE}
+         (email, display_name, given_name, family_name, microsoft_id, login_type, is_active)
+       VALUES ($1, $2, $3, $4, NULL, $5, $6)
+       RETURNING id, email, display_name, given_name, family_name, microsoft_id, login_type,
+                 is_active, last_login, created_at, updated_at`,
+      [email, display_name, given_name, family_name, login_type, is_active]
+    );
+    return rows[0];
+  },
 };
 
 module.exports = User;

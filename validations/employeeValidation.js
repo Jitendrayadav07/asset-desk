@@ -28,6 +28,19 @@ const employeeValidation = {
   deleteEmployee: Joi.object().keys({
     id: Joi.number().integer().min(1).required(),
   }),
+
+  lifecycleParams: Joi.object().keys({
+    id: Joi.number().integer().min(1).required(),
+  }),
+
+  leftJobBody: Joi.object().keys({
+    reason: Joi.string().trim().min(1).max(2000).required(),
+    left_by: Joi.string().trim().max(255).optional().allow(null, ""),
+  }),
+
+  rejoinBody: Joi.object().keys({
+    rejoined_by: Joi.string().trim().max(255).optional().allow(null, ""),
+  }),
 };
 
 module.exports = employeeValidation;

@@ -7,6 +7,7 @@ const path = require("path");
 const session = require("express-session");
 const cookieParser = require("cookie-parser");
 const passport = require("./config/passport");
+const { getAuthCookieOptions } = require("./config/cookies");
 
 const routes = require("./routes");
 const authRoutes = require("./routes/authRoutes");
@@ -15,6 +16,8 @@ const Response = require("./classes/Response");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+app.set("trust proxy", 1);
 
 app.use(
   cors({
@@ -35,8 +38,10 @@ app.use(
     secret: process.env.SESSION_SECRET || "change-me-in-env",
     resave: false,
     saveUninitialized: false,
+    cookie: getAuthCookieOptions(),
   })
 );
+
 app.use(passport.initialize());
 app.use(passport.session());
 

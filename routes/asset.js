@@ -371,6 +371,58 @@ router.post(
 
 /**
  * @openapi
+ * /asset/{id}/maintenance:
+ *   post:
+ *     tags: [Assets]
+ *     summary: Mark asset as under maintenance
+ *     description: >
+ *       Transitions the asset to `maintenance` state. Any active assignment is
+ *       auto-closed. Fails if the asset is retired or missing.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Keyboard replacement + battery service
+ *               reported_by:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Asset marked as under maintenance
+ *       400:
+ *         description: Already in maintenance / retired / missing
+ *       401:
+ *         description: Missing or invalid JWT
+ *       404:
+ *         description: Asset not found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/:id/maintenance",
+  jwtMiddleware,
+  JoiMiddleWare(assetValidation.lifecycleParams, "params"),
+  JoiMiddleWare(assetValidation.maintenanceAssetBody, "body"),
+  assetController.markMaintenanceAsset
+);
+
+/**
+ * @openapi
  * /asset/{id}/restore:
  *   post:
  *     tags: [Assets]

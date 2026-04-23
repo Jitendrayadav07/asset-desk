@@ -19,6 +19,16 @@ const employeeInclude = {
 
 const baseIncludes = [assetInclude, employeeInclude];
 
+async function findStatusIdByName(name) {
+  const row = await db.assetStatus.findOne({
+    where: db.sequelize.where(
+      db.sequelize.fn("LOWER", db.sequelize.col("name")),
+      String(name).toLowerCase()
+    ),
+  });
+  return row ? row.id : null;
+}
+
 const createAssignment = async (req, res) => {
   try {
     const { asset_id, employee_id, hostname, aid, note, assigned_by } = req.body;
@@ -70,13 +80,39 @@ const createAssignment = async (req, res) => {
         );
     }
 
-    const created = await db.assignment.create({
-      asset_id,
-      employee_id,
-      hostname: String(hostname).trim(),
-      aid: String(aid).trim(),
-      note: note ? String(note).trim() : null,
-      assigned_by: assigned_by ? String(assigned_by).trim() : null,
+    const assignedStatusId = await findStatusIdByName("assigned");
+    if (!assignedStatusId) {
+      return res
+        .status(500)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "Required asset_status lookup row is missing. Seed asset_statuses first.",
+            500
+          )
+        );
+    }
+
+    const created = await db.sequelize.transaction(async (t) => {
+      const assignment = await db.assignment.create(
+        {
+          asset_id,
+          employee_id,
+          hostname: String(hostname).trim(),
+          aid: String(aid).trim(),
+          note: note ? String(note).trim() : null,
+          assigned_by: assigned_by ? String(assigned_by).trim() : null,
+        },
+        { transaction: t }
+      );
+      // Flip the asset to `assigned`. `is_used` is a lifetime flag — once true,
+      // stays true, so we set it here too (no-op for re-assignments).
+      await db.asset.update(
+        { asset_status_id: assignedStatusId, is_used: true },
+        { where: { id: asset_id }, transaction: t }
+      );
+      return assignment;
     });
 
     const withRelations = await db.assignment.findByPk(created.id, {
@@ -174,14 +210,40 @@ const unassignAssignment = async (req, res) => {
       ? String(req.body.unassigned_by).trim()
       : null;
 
-    await db.assignment.update(
-      {
-        unassigned_at: new Date(),
-        unassigned_reason: reason,
-        unassigned_by: unassignedBy || null,
-      },
-      { where: { id: existing.id } }
-    );
+    const unassignedStatusId = await findStatusIdByName("unassigned");
+    if (!unassignedStatusId) {
+      return res
+        .status(500)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "Required asset_status lookup row is missing. Seed asset_statuses first.",
+            500
+          )
+        );
+    }
+
+    await db.sequelize.transaction(async (t) => {
+      await db.assignment.update(
+        {
+          unassigned_at: new Date(),
+          unassigned_reason: reason,
+          unassigned_by: unassignedBy || null,
+        },
+        { where: { id: existing.id }, transaction: t }
+      );
+      // Only flip back to `unassigned` if the asset is currently `assigned`.
+      // Retired/missing/maintenance were set by their own flows and must stay.
+      const currentAsset = await db.asset.findByPk(existing.asset_id, { transaction: t });
+      const assignedStatusId = await findStatusIdByName("assigned");
+      if (currentAsset && currentAsset.asset_status_id === assignedStatusId) {
+        await db.asset.update(
+          { asset_status_id: unassignedStatusId },
+          { where: { id: existing.asset_id }, transaction: t }
+        );
+      }
+    });
 
     const updated = await db.assignment.findByPk(existing.id, { include: baseIncludes });
     return res

@@ -21,6 +21,7 @@ const sequelize = new Sequelize(connectionString, {
       }
     : {},
   logging: false,
+  sync: true,
   pool: {
     max: 10,
     min: 0,

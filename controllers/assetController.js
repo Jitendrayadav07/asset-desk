@@ -71,6 +71,22 @@ const createAsset = async (req, res) => {
     body.configuration_specs =
       body.configuration_specs === "" ? null : body.configuration_specs;
 
+    // New assets default to the `unassigned` lookup row so the status column
+    // is never empty and flows like "Assign" have a well-defined origin state.
+    if (body.asset_status_id == null) {
+      body.asset_status_id = await findStatusIdByName("unassigned");
+      if (!body.asset_status_id) {
+        return res
+          .status(500)
+          .json(
+            Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500)
+          );
+      }
+    }
+    // `is_used` is a lifetime flag — always starts false on create, regardless
+    // of what the client sends.
+    body.is_used = false;
+
     const lookup = await validateLookupIds({
       asset_type_id: body.asset_type_id,
       asset_status_id: body.asset_status_id,
@@ -412,7 +428,7 @@ const reportMissingAsset = async (req, res) => {
   }
 };
 
-const restoreAsset = async (req, res) => {
+const markMaintenanceAsset = async (req, res) => {
   try {
     const existing = await db.asset.findByPk(req.params.id);
     if (!existing) {
@@ -420,16 +436,99 @@ const restoreAsset = async (req, res) => {
         .status(404)
         .json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
     }
-    if (!existing.retired_at && !existing.missing_since) {
+    if (existing.retired_at) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ALREADY_RETIRED, 400));
+    }
+    if (existing.missing_since) {
+      return res
+        .status(400)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ALREADY_MISSING, 400));
+    }
+
+    const maintenanceStatusId = await findStatusIdByName("maintenance");
+    if (!maintenanceStatusId) {
+      return res
+        .status(500)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500));
+    }
+    if (existing.asset_status_id === maintenanceStatusId) {
       return res
         .status(400)
         .json(
-          Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_RETIRED_OR_MISSING, 400)
+          Response.sendResponse(false, null, ASSET_CONSTANTS.ALREADY_MAINTENANCE, 400)
         );
     }
 
-    const activeStatusId = await findStatusIdByName("active");
-    if (!activeStatusId) {
+    const reason = String(req.body.reason || "").trim();
+    const reportedBy = req.body.reported_by
+      ? String(req.body.reported_by).trim()
+      : null;
+
+    const { updated, closedAssignment } = await db.sequelize.transaction(async (t) => {
+      const closedAssignment = await closeActiveAssignmentForAsset(
+        existing.id,
+        {
+          reason: `Sent to maintenance: ${reason}`,
+          unassignedBy: reportedBy,
+        },
+        t
+      );
+
+      await db.asset.update(
+        { asset_status_id: maintenanceStatusId },
+        { where: { id: existing.id }, transaction: t }
+      );
+
+      const updated = await db.asset.findByPk(existing.id, {
+        include: includeLookups,
+        transaction: t,
+      });
+      return { updated, closedAssignment };
+    });
+
+    const payload = updated.toJSON();
+    payload.closed_assignment = closedAssignment;
+    return res
+      .status(200)
+      .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.MAINTENANCE_SET, 200));
+  } catch (err) {
+    console.error("markMaintenanceAsset", err);
+    return res
+      .status(500)
+      .json(Response.sendResponse(false, null, ASSET_CONSTANTS.ERROR_OCCURED, 500));
+  }
+};
+
+const restoreAsset = async (req, res) => {
+  try {
+    const existing = await db.asset.findByPk(req.params.id, { include: includeLookups });
+    if (!existing) {
+      return res
+        .status(404)
+        .json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
+    }
+
+    const maintenanceStatusId = await findStatusIdByName("maintenance");
+    const currentIsMaintenance =
+      maintenanceStatusId != null && existing.asset_status_id === maintenanceStatusId;
+
+    if (!existing.retired_at && !existing.missing_since && !currentIsMaintenance) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            ASSET_CONSTANTS.NOT_RETIRED_MISSING_OR_MAINTENANCE,
+            400
+          )
+        );
+    }
+
+    const unassignedStatusId = await findStatusIdByName("unassigned");
+    if (!unassignedStatusId) {
       return res
         .status(500)
         .json(Response.sendResponse(false, null, ASSET_CONSTANTS.STATUS_LOOKUP_MISSING, 500));
@@ -437,7 +536,7 @@ const restoreAsset = async (req, res) => {
 
     await db.asset.update(
       {
-        asset_status_id: activeStatusId,
+        asset_status_id: unassignedStatusId,
         retired_at: null,
         retired_reason: null,
         retired_by: null,
@@ -483,7 +582,7 @@ const downloadAssetTemplate = async (_req, res) => {
         [
           "SN-A100",
           "Laptop",
-          "active",
+          "unassigned",
           "new",
           'MacBook Pro 14"',
           "Apple",
@@ -496,8 +595,8 @@ const downloadAssetTemplate = async (_req, res) => {
         [
           "SN-M045",
           "Monitor",
-          "active",
-          "good",
+          "unassigned",
+          "refurbished",
           'Dell UltraSharp 27"',
           "Dell",
           "U2723QE",
@@ -511,11 +610,14 @@ const downloadAssetTemplate = async (_req, res) => {
         "InventoryPro — Asset import template",
         "",
         "Required columns: serial_number, asset_type, name_model, brand, location.",
-        "Optional: asset_status, asset_condition, model_number, configuration_specs, purchase_date, price_usd.",
+        "Optional: asset_status, asset_condition (Purchase Type), model_number,",
+        "configuration_specs, purchase_date, price_usd.",
         "",
         "asset_type / asset_status / asset_condition must match existing lookup names",
-        "(case-insensitive). Examples: asset_type=Laptop; asset_status=active/maintenance/retired/missing;",
-        "asset_condition=new/good/fair/poor.",
+        "(case-insensitive). New imports default to asset_status=unassigned. Valid values:",
+        "  asset_type: Laptop / Desktop / Monitor / ...",
+        "  asset_status: unassigned / maintenance / retired / missing",
+        "  asset_condition (Purchase Type): new / refurbished",
         "",
         "purchase_date format: YYYY-MM-DD (e.g. 2024-03-10). price_usd: plain number.",
         "serial_number must be unique across the inventory.",
@@ -565,6 +667,7 @@ const importAssets = async (req, res) => {
     const conditionByName = new Map(
       conditions.map((c) => [c.name.toLowerCase(), c.id])
     );
+    const defaultStatusId = statusByName.get("unassigned") ?? null;
 
     const created = [];
     const errors = [];
@@ -595,7 +698,7 @@ const importAssets = async (req, res) => {
         if (!asset_type_id) {
           throw new Error(`Unknown asset_type '${typeName}'`);
         }
-        let asset_status_id = null;
+        let asset_status_id = defaultStatusId;
         if (statusName) {
           asset_status_id = statusByName.get(statusName.toLowerCase()) ?? null;
           if (!asset_status_id) throw new Error(`Unknown asset_status '${statusName}'`);
@@ -619,6 +722,7 @@ const importAssets = async (req, res) => {
           location,
           purchase_date,
           price_usd,
+          is_used: false,
         });
         created.push({ id: row.id, serial_number: row.serial_number });
       } catch (err) {
@@ -667,6 +771,7 @@ module.exports = {
   deleteAsset,
   retireAsset,
   reportMissingAsset,
+  markMaintenanceAsset,
   restoreAsset,
   downloadAssetTemplate,
   importAssets,

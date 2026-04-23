@@ -82,6 +82,13 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      // Flipped true the first time an asset is assigned to an employee.
+      // Never reverts — "used" is a lifetime flag, not a current-state flag.
+      is_used: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
     },
     {
       tableName: "assets",

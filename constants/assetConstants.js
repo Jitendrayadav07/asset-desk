@@ -4,10 +4,13 @@ const ASSET_CONSTANTS = {
   DELETED: "Asset deleted",
   RETIRED: "Asset marked as end-of-life",
   MISSING_REPORTED: "Asset reported as missing",
-  RESTORED: "Asset restored to active",
+  MAINTENANCE_SET: "Asset marked as under maintenance",
+  RESTORED: "Asset restored to unassigned",
   ALREADY_RETIRED: "Asset is already end-of-life",
   ALREADY_MISSING: "Asset is already reported missing",
-  NOT_RETIRED_OR_MISSING: "Asset is not retired or missing",
+  ALREADY_MAINTENANCE: "Asset is already under maintenance",
+  NOT_RETIRED_MISSING_OR_MAINTENANCE:
+    "Asset is not retired, missing, or under maintenance",
   STATUS_LOOKUP_MISSING:
     "Required asset_status lookup row is missing. Seed asset_statuses first.",
   INVALID_TYPE_ID: "Invalid asset_type_id",

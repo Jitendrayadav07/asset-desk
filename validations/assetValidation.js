@@ -73,6 +73,11 @@ const assetValidation = {
   restoreAssetBody: Joi.object().keys({
     restored_by: Joi.string().trim().max(255).optional().allow(null, ""),
   }),
+
+  maintenanceAssetBody: Joi.object().keys({
+    reason: Joi.string().trim().min(1).max(2000).required(),
+    reported_by: Joi.string().trim().max(255).optional().allow(null, ""),
+  }),
 };
 
 module.exports = assetValidation;

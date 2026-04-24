@@ -26,6 +26,18 @@ const includeLookups = [
   { model: db.assetCondition, as: "assetCondition", attributes: ["id", "name"] },
 ];
 
+/** Primary sort for asset lists: status name order (not id / not A–Z). */
+function assetStatusOrderExpr(mainTableAlias) {
+  return `CASE (SELECT s.name FROM asset_statuses s WHERE s.id = ${mainTableAlias}.asset_status_id)
+    WHEN 'unassigned' THEN 1
+    WHEN 'assigned' THEN 2
+    WHEN 'maintenance' THEN 3
+    WHEN 'retired' THEN 4
+    WHEN 'missing' THEN 5
+    ELSE 99
+  END`;
+}
+
 function normalizePurchaseDate(value) {
   if (value == null || value === "") return null;
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -154,6 +166,7 @@ const getAllAssets = async (req, res) => {
       where,
       include: includeLookups,
       order: [
+        [db.sequelize.literal(`${assetStatusOrderExpr(mainAlias)} ASC`)],
         [db.sequelize.literal(`${mainAlias}."purchase_date" DESC NULLS LAST`)],
         [db.sequelize.literal(`${mainAlias}."created_at" DESC`)],
       ],

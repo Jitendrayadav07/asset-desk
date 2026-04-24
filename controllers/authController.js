@@ -14,6 +14,18 @@ function resolveFrontendSuccessUrl() {
   return "/auth/microsoft/success";
 }
 
+function resolveFrontendAccessDeniedUrl(reason, email) {
+  const origin = process.env.CLIENT_ORIGIN;
+  const base = origin
+    ? `${origin.replace(/\/$/, "")}/auth/access-denied`
+    : "/auth/access-denied";
+  const params = new URLSearchParams();
+  if (reason) params.set("reason", reason);
+  if (email) params.set("email", email);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 function toPlain(user) {
   return user && typeof user.get === "function"
     ? user.get({ plain: true })
@@ -37,12 +49,23 @@ function publicUser(user) {
   };
 }
 
-async function upsertFromMicrosoftProfile(profile) {
-  const email =
+function profileEmail(profile) {
+  return (
     (profile.emails && profile.emails[0] && profile.emails[0].value) ||
     (profile._json && (profile._json.mail || profile._json.userPrincipalName)) ||
-    null;
+    null
+  );
+}
 
+/**
+ * Looks up an existing user by Microsoft-profile email and refreshes their
+ * stored name / microsoft_id / last_login. Returns the user when found or
+ * `null` when the email is not registered — the caller is responsible for
+ * redirecting unknown emails to the access-denied page (we intentionally do
+ * NOT create users here; admins provision them via User Management).
+ */
+async function lookupFromMicrosoftProfile(profile) {
+  const email = profileEmail(profile);
   if (!email) {
     throw new Error("Microsoft profile did not return an email");
   }
@@ -53,17 +76,7 @@ async function upsertFromMicrosoftProfile(profile) {
   const familyName = (profile.name && profile.name.familyName) || null;
 
   const existing = await db.user.findOne({ where: { email } });
-  if (!existing) {
-    return db.user.create({
-      email,
-      display_name: displayName,
-      given_name: givenName,
-      family_name: familyName,
-      microsoft_id: microsoftId,
-      login_type: LOGIN_TYPE.MICROSOFT,
-      last_login: new Date(),
-    });
-  }
+  if (!existing) return null;
 
   await existing.update({
     display_name: displayName != null ? displayName : existing.display_name,
@@ -80,12 +93,21 @@ const microsoftCallback = async (req, res) => {
   try {
     const profile = req.user;
 
-    const user = await upsertFromMicrosoftProfile(profile);
+    const user = await lookupFromMicrosoftProfile(profile);
+
+    // Email isn't in `users` — do NOT create a row. Redirect to the access
+    // denied page so the user can contact an admin to get provisioned.
+    if (!user) {
+      const attemptedEmail = profileEmail(profile);
+      return res.redirect(
+        resolveFrontendAccessDeniedUrl("not-registered", attemptedEmail)
+      );
+    }
 
     if (!user.is_active) {
-      return res
-        .status(403)
-        .json(Response.sendResponse(false, null, "User is deactivated", 403));
+      return res.redirect(
+        resolveFrontendAccessDeniedUrl("deactivated", user.email)
+      );
     }
 
     const token = jwt.sign(

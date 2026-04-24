@@ -40,11 +40,23 @@ async function findStatusIdByName(name) {
   return row ? row.id : null;
 }
 
+// Asset types that physically get a hostname + asset id sticker. Only these
+// require hostname/aid when assigning. Compared case-insensitively.
+const HOSTNAME_AID_REQUIRED_TYPES = new Set(["laptop", "desktop"]);
+
+function requiresHostnameAid(assetTypeName) {
+  return HOSTNAME_AID_REQUIRED_TYPES.has(
+    String(assetTypeName ?? "").trim().toLowerCase()
+  );
+}
+
 const createAssignment = async (req, res) => {
   try {
     const { asset_id, employee_id, hostname, aid, note, assigned_by } = req.body;
 
-    const asset = await db.asset.findByPk(asset_id);
+    const asset = await db.asset.findByPk(asset_id, {
+      include: [{ model: db.assetType, as: "assetType", attributes: ["id", "name"] }],
+    });
     if (!asset) {
       return res
         .status(404)
@@ -59,6 +71,24 @@ const createAssignment = async (req, res) => {
       return res
         .status(400)
         .json(Response.sendResponse(false, null, ASSIGNMENT_CONSTANTS.ASSET_MISSING, 400));
+    }
+
+    // Hostname / AID are only meaningful for computers. Enforce them for
+    // Laptop / Desktop, accept empty for everything else.
+    const mustHaveHostnameAid = requiresHostnameAid(asset.assetType?.name);
+    const trimmedHostname = hostname != null ? String(hostname).trim() : "";
+    const trimmedAid = aid != null ? String(aid).trim() : "";
+    if (mustHaveHostnameAid && (!trimmedHostname || !trimmedAid)) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "Hostname and AID are required for Laptop and Desktop assignments",
+            400
+          )
+        );
     }
 
     const employee = await db.employee.findByPk(employee_id);
@@ -110,8 +140,8 @@ const createAssignment = async (req, res) => {
         {
           asset_id,
           employee_id,
-          hostname: String(hostname).trim(),
-          aid: String(aid).trim(),
+          hostname: trimmedHostname,
+          aid: trimmedAid,
           note: note ? String(note).trim() : null,
           assigned_by: assigned_by ? String(assigned_by).trim() : null,
         },
@@ -233,9 +263,19 @@ const unassignAssignment = async (req, res) => {
     const unassignedBy = req.body.unassigned_by
       ? String(req.body.unassigned_by).trim()
       : null;
+    const returnCondition = ["good", "maintenance", "retired", "missing"].includes(
+      req.body.return_condition
+    )
+      ? req.body.return_condition
+      : "good";
 
-    const unassignedStatusId = await findStatusIdByName("unassigned");
-    if (!unassignedStatusId) {
+    // Map return condition → target asset_status name. Good returns to the
+    // pool; others transition the asset into the matching lifecycle state so
+    // the inventory badge + metadata stay correct without a second call.
+    const targetStatusName =
+      returnCondition === "good" ? "unassigned" : returnCondition;
+    const targetStatusId = await findStatusIdByName(targetStatusName);
+    if (!targetStatusId) {
       return res
         .status(500)
         .json(
@@ -257,16 +297,52 @@ const unassignAssignment = async (req, res) => {
         },
         { where: { id: existing.id }, transaction: t }
       );
-      // Only flip back to `unassigned` if the asset is currently `assigned`.
-      // Retired/missing/maintenance were set by their own flows and must stay.
+
+      // Only flip the asset if it is currently `assigned` — a retired/missing
+      // asset that got auto-unassigned shouldn't be stamped over by a stale
+      // unassign call.
       const currentAsset = await db.asset.findByPk(existing.asset_id, { transaction: t });
       const assignedStatusId = await findStatusIdByName("assigned");
-      if (currentAsset && currentAsset.asset_status_id === assignedStatusId) {
-        await db.asset.update(
-          { asset_status_id: unassignedStatusId },
-          { where: { id: existing.asset_id }, transaction: t }
-        );
+      if (!currentAsset || currentAsset.asset_status_id !== assignedStatusId) {
+        return;
       }
+
+      const patch = { asset_status_id: targetStatusId };
+      const now = new Date();
+      if (returnCondition === "retired") {
+        patch.retired_at = now;
+        patch.retired_reason = reason;
+        patch.retired_by = unassignedBy || null;
+        patch.missing_since = null;
+        patch.missing_reason = null;
+        patch.last_known_location = null;
+        patch.reported_by = null;
+      } else if (returnCondition === "missing") {
+        patch.missing_since = now;
+        patch.missing_reason = reason;
+        patch.last_known_location = currentAsset.location || null;
+        patch.reported_by = unassignedBy || null;
+        patch.retired_at = null;
+        patch.retired_reason = null;
+        patch.retired_by = null;
+      } else if (returnCondition === "maintenance") {
+        // Maintenance has no dedicated timestamp columns — the activity log
+        // captures the "why"; the asset's status field captures the "what".
+      } else {
+        // "good" → back to unassigned; clear any stale lifecycle metadata.
+        patch.retired_at = null;
+        patch.retired_reason = null;
+        patch.retired_by = null;
+        patch.missing_since = null;
+        patch.missing_reason = null;
+        patch.last_known_location = null;
+        patch.reported_by = null;
+      }
+
+      await db.asset.update(patch, {
+        where: { id: existing.asset_id },
+        transaction: t,
+      });
     });
 
     const updated = await db.assignment.findByPk(existing.id, { include: baseIncludes });
@@ -278,6 +354,8 @@ const unassignAssignment = async (req, res) => {
       metadata: {
         reason,
         unassigned_by: unassignedBy,
+        return_condition: returnCondition,
+        resulting_status: targetStatusName,
         asset_id: existing.asset_id,
         employee_id: existing.employee_id,
       },

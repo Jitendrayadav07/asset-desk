@@ -25,7 +25,9 @@ const createAssetType = async (req, res) => {
 
 const getAllAssetTypes = async (req, res) => {
   try {
-    const rows = await db.assetType.findAll({ order: [["name", "ASC"]] });
+    // Insertion order (seeder order) — avoids an alphabetical reshuffle so the
+    // dropdown presents types in the curated order defined by the seed.
+    const rows = await db.assetType.findAll({ order: [["id", "ASC"]] });
     return res.status(200).json(Response.sendResponse(true, rows, null, 200));
   } catch (err) {
     console.error("getAllAssetTypes", err);

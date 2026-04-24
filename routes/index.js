@@ -9,6 +9,7 @@ const userRoutes = require("./user");
 const employeeRoutes = require("./employee");
 const assignmentRoutes = require("./assignment");
 const dashboardRoutes = require("./dashboard");
+const activityRoutes = require("./activity");
 
 router.use("/asset-type", assetTypeRoutes);
 router.use("/asset-condition", assetConditionRoutes);
@@ -18,6 +19,7 @@ router.use("/user", userRoutes);
 router.use("/employee", employeeRoutes);
 router.use("/assignment", assignmentRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/activity", activityRoutes);
 
 router.get("/health", (req, res) => {
   res.json({

@@ -5,6 +5,7 @@ const userController = require("../controllers/userController");
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const userValidation = require("../validations/userValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireAdmin = require("../middlewares/rbac/requireAdmin");
 
 /**
  * @openapi
@@ -51,6 +52,7 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
 router.post(
   "/create-user",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(userValidation.createUser, "body"),
   userController.createUser
 );
@@ -71,7 +73,7 @@ router.post(
  *       500:
  *         description: Server error
  */
-router.get("/get-all-users", jwtMiddleware, userController.getAllUsers);
+router.get("/get-all-users", jwtMiddleware, requireAdmin, userController.getAllUsers);
 
 /**
  * @openapi
@@ -121,6 +123,7 @@ router.get("/get-all-users", jwtMiddleware, userController.getAllUsers);
 router.get(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(userValidation.getUser, "params"),
   userController.findUserById
 );
@@ -155,6 +158,7 @@ router.get(
 router.put(
   "/",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(userValidation.putUser, "body"),
   userController.updateUser
 );
@@ -162,6 +166,7 @@ router.put(
 router.delete(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(userValidation.deleteUser, "params"),
   userController.deleteUser
 );

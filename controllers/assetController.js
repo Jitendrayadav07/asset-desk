@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const ASSET_CONSTANTS = require("../constants/assetConstants");
+const { recordActivity } = require("./activityController");
 const {
   readUploadedFileBuffer,
   parseWorkbookRows,
@@ -11,6 +12,13 @@ const {
   dateYMD,
   num,
 } = require("./importHelpers");
+
+function assetLabel(asset) {
+  if (!asset) return null;
+  const name = asset.name_model || "";
+  const serial = asset.serial_number || "";
+  return serial && name ? `${serial} · ${name}` : serial || name || null;
+}
 
 const includeLookups = [
   { model: db.assetType, as: "assetType", attributes: ["id", "name"] },
@@ -98,6 +106,16 @@ const createAsset = async (req, res) => {
 
     const created = await db.asset.create(body);
     const withLookups = await db.asset.findByPk(created.id, { include: includeLookups });
+    recordActivity(req, {
+      action: "asset.create",
+      entity_type: "asset",
+      entity_id: created.id,
+      entity_label: assetLabel(withLookups),
+      metadata: {
+        asset_type: withLookups?.assetType?.name ?? null,
+        location: withLookups?.location ?? null,
+      },
+    });
     return res
       .status(201)
       .json(Response.sendResponse(true, withLookups, ASSET_CONSTANTS.CREATED, 201));
@@ -219,6 +237,13 @@ const updateAsset = async (req, res) => {
 
     await db.asset.update(rest, { where: { id } });
     const updated = await db.asset.findByPk(id, { include: includeLookups });
+    recordActivity(req, {
+      action: "asset.update",
+      entity_type: "asset",
+      entity_id: id,
+      entity_label: assetLabel(updated),
+      metadata: { changed_fields: Object.keys(rest) },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.UPDATED, 200));
@@ -237,10 +262,17 @@ const updateAsset = async (req, res) => {
 
 const deleteAsset = async (req, res) => {
   try {
+    const existing = await db.asset.findByPk(req.params.id);
     const destroyed = await db.asset.destroy({ where: { id: req.params.id } });
     if (!destroyed) {
       return res.status(404).json(Response.sendResponse(false, null, ASSET_CONSTANTS.NOT_FOUND, 404));
     }
+    recordActivity(req, {
+      action: "asset.delete",
+      entity_type: "asset",
+      entity_id: req.params.id,
+      entity_label: assetLabel(existing),
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, destroyed, ASSET_CONSTANTS.DELETED, 200));
@@ -344,6 +376,18 @@ const retireAsset = async (req, res) => {
 
     const payload = updated.toJSON();
     payload.closed_assignment = closedAssignment;
+    recordActivity(req, {
+      action: "asset.retire",
+      entity_type: "asset",
+      entity_id: existing.id,
+      entity_label: assetLabel(updated),
+      metadata: {
+        reason,
+        retired_by: retiredBy,
+        closed_assignment_id: closedAssignment?.id ?? null,
+        previous_owner: closedAssignment?.employee?.name ?? null,
+      },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.RETIRED, 200));
@@ -417,6 +461,19 @@ const reportMissingAsset = async (req, res) => {
 
     const payload = updated.toJSON();
     payload.closed_assignment = closedAssignment;
+    recordActivity(req, {
+      action: "asset.report_missing",
+      entity_type: "asset",
+      entity_id: existing.id,
+      entity_label: assetLabel(updated),
+      metadata: {
+        reason,
+        last_known_location: lastKnown,
+        reported_by: reportedBy,
+        closed_assignment_id: closedAssignment?.id ?? null,
+        previous_owner: closedAssignment?.employee?.name ?? null,
+      },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.MISSING_REPORTED, 200));
@@ -490,6 +547,18 @@ const markMaintenanceAsset = async (req, res) => {
 
     const payload = updated.toJSON();
     payload.closed_assignment = closedAssignment;
+    recordActivity(req, {
+      action: "asset.mark_maintenance",
+      entity_type: "asset",
+      entity_id: existing.id,
+      entity_label: assetLabel(updated),
+      metadata: {
+        reason,
+        reported_by: reportedBy,
+        closed_assignment_id: closedAssignment?.id ?? null,
+        previous_owner: closedAssignment?.employee?.name ?? null,
+      },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, payload, ASSET_CONSTANTS.MAINTENANCE_SET, 200));
@@ -549,6 +618,19 @@ const restoreAsset = async (req, res) => {
     );
 
     const updated = await db.asset.findByPk(existing.id, { include: includeLookups });
+    recordActivity(req, {
+      action: "asset.restore",
+      entity_type: "asset",
+      entity_id: existing.id,
+      entity_label: assetLabel(updated),
+      metadata: {
+        restored_from: existing.retired_at
+          ? "retired"
+          : existing.missing_since
+            ? "missing"
+            : "maintenance",
+      },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, ASSET_CONSTANTS.RESTORED, 200));
@@ -734,6 +816,20 @@ const importAssets = async (req, res) => {
       }
     }
 
+    if (created.length > 0) {
+      recordActivity(req, {
+        action: "asset.import",
+        entity_type: "asset",
+        entity_id: null,
+        entity_label: `Imported ${created.length} asset${created.length === 1 ? "" : "s"}`,
+        metadata: {
+          total_rows: rows.length,
+          created: created.length,
+          failed: errors.length,
+          created_items: created,
+        },
+      });
+    }
     return res.status(200).json(
       Response.sendResponse(
         true,

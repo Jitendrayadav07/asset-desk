@@ -1,6 +1,17 @@
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const ASSIGNMENT_CONSTANTS = require("../constants/assignmentConstants");
+const { recordActivity } = require("./activityController");
+
+function assignmentLabel(assignment) {
+  if (!assignment) return null;
+  const asset = assignment.asset;
+  const emp = assignment.employee;
+  const assetBit = asset ? `${asset.serial_number ?? ""} · ${asset.name_model ?? ""}`.trim() : "";
+  const empBit = emp?.name ?? "";
+  if (assetBit && empBit) return `${assetBit} → ${empBit}`;
+  return assetBit || empBit || null;
+}
 
 const assetInclude = {
   model: db.asset,
@@ -117,6 +128,19 @@ const createAssignment = async (req, res) => {
 
     const withRelations = await db.assignment.findByPk(created.id, {
       include: baseIncludes,
+    });
+
+    recordActivity(req, {
+      action: "assignment.create",
+      entity_type: "assignment",
+      entity_id: created.id,
+      entity_label: assignmentLabel(withRelations),
+      metadata: {
+        asset_id,
+        employee_id,
+        hostname: withRelations?.hostname ?? null,
+        aid: withRelations?.aid ?? null,
+      },
     });
 
     return res
@@ -246,6 +270,18 @@ const unassignAssignment = async (req, res) => {
     });
 
     const updated = await db.assignment.findByPk(existing.id, { include: baseIncludes });
+    recordActivity(req, {
+      action: "assignment.unassign",
+      entity_type: "assignment",
+      entity_id: existing.id,
+      entity_label: assignmentLabel(updated),
+      metadata: {
+        reason,
+        unassigned_by: unassignedBy,
+        asset_id: existing.asset_id,
+        employee_id: existing.employee_id,
+      },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, ASSIGNMENT_CONSTANTS.UNASSIGNED, 200));

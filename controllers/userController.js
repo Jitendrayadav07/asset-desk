@@ -1,6 +1,14 @@
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const USER_CONSTANTS = require("../constants/userConstants");
+const { recordActivity } = require("./activityController");
+
+function userLabel(user) {
+  if (!user) return null;
+  const name = user.display_name || "";
+  const email = user.email || "";
+  return name && email ? `${name} (${email})` : email || name || null;
+}
 
 function normalizePatch(body) {
   const { id, ...rest } = body;
@@ -9,6 +17,7 @@ function normalizePatch(body) {
   if (rest.given_name !== undefined) patch.given_name = rest.given_name || null;
   if (rest.family_name !== undefined) patch.family_name = rest.family_name || null;
   if (rest.is_active !== undefined) patch.is_active = rest.is_active;
+  if (rest.role !== undefined) patch.role = rest.role;
   return patch;
 }
 
@@ -34,9 +43,17 @@ const createUser = async (req, res) => {
       given_name: req.body.given_name ? String(req.body.given_name).trim() : null,
       family_name: req.body.family_name ? String(req.body.family_name).trim() : null,
       is_active: req.body.is_active !== undefined ? Boolean(req.body.is_active) : true,
+      role: req.body.role === "admin" ? "admin" : "user",
       login_type: USER_CONSTANTS.LOGIN_TYPE.EMAIL,
     });
 
+    recordActivity(req, {
+      action: "user.create",
+      entity_type: "user",
+      entity_id: created.id,
+      entity_label: userLabel(created),
+      metadata: { role: created.role, is_active: created.is_active },
+    });
     return res
       .status(201)
       .json(Response.sendResponse(true, created, USER_CONSTANTS.CREATED, 201));
@@ -65,6 +82,7 @@ const getAllUsers = async (req, res) => {
         "microsoft_id",
         "login_type",
         "is_active",
+        "role",
         "last_login",
         "created_at",
         "updated_at",
@@ -109,8 +127,33 @@ const updateUser = async (req, res) => {
       return res.status(404).json(Response.sendResponse(false, null, USER_CONSTANTS.NOT_FOUND, 404));
     }
 
+    // Don't let the only admin demote themselves into a locked-out state.
+    const jwtUserId = req.user?.user_id != null ? Number(req.user.user_id) : null;
+    const isSelf = jwtUserId !== null && Number(existing.id) === jwtUserId;
+    const demotingSelf =
+      isSelf && patch.role !== undefined && patch.role !== "admin" && existing.role === "admin";
+    if (demotingSelf) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            "You cannot remove admin from your own account",
+            400
+          )
+        );
+    }
+
     await existing.update(patch);
     const updated = await db.user.findByPk(req.body.id);
+    recordActivity(req, {
+      action: "user.update",
+      entity_type: "user",
+      entity_id: req.body.id,
+      entity_label: userLabel(updated),
+      metadata: { changed_fields: Object.keys(patch) },
+    });
     return res.status(200).json(Response.sendResponse(true, updated, USER_CONSTANTS.UPDATED, 200));
   } catch (err) {
     console.error("updateUser", err);
@@ -130,10 +173,17 @@ const deleteUser = async (req, res) => {
         .json(Response.sendResponse(false, null, USER_CONSTANTS.CANNOT_REMOVE_SELF, 400));
     }
 
+    const existing = await db.user.findByPk(req.params.id);
     const removed = await db.user.destroy({ where: { id: req.params.id } });
     if (!removed) {
       return res.status(404).json(Response.sendResponse(false, null, USER_CONSTANTS.NOT_FOUND, 404));
     }
+    recordActivity(req, {
+      action: "user.delete",
+      entity_type: "user",
+      entity_id: req.params.id,
+      entity_label: userLabel(existing),
+    });
     return res.status(200).json(Response.sendResponse(true, removed, USER_CONSTANTS.DELETED, 200));
   } catch (err) {
     console.error("deleteUser", err);

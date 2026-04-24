@@ -4,6 +4,7 @@ const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const { LOGIN_TYPE } = require("../constants/userConstants");
 const { getAuthCookieOptions } = require("../config/cookies");
+const { recordActivity } = require("./activityController");
 
 function resolveFrontendSuccessUrl() {
   const explicit = process.env.FRONTEND_POST_LOGIN_REDIRECT;
@@ -31,6 +32,7 @@ function publicUser(user) {
     login_type: u.login_type,
     is_active: u.is_active,
     last_login: u.last_login,
+    role: u.role,
     created_at: u.created_at,
   };
 }
@@ -87,7 +89,7 @@ const microsoftCallback = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { user_id: user.id, email_id: user.email },
+      { user_id: user.id, email_id: user.email, role: user.role },
       jwtConfig.secret,
       { expiresIn: jwtConfig.expiresIn }
     );
@@ -141,12 +143,23 @@ const microsoftLoginSuccess = async (req, res) => {
     res.clearCookie("microsoftAuthToken", getAuthCookieOptions());
 
     const token = jwt.sign(
-      { user_id: u.id, email_id: u.email },
+      { user_id: u.id, email_id: u.email, role: u.role },
       jwtConfig.secret,
       { expiresIn: jwtConfig.expiresIn }
     );
 
     await db.user.update({ last_login: new Date() }, { where: { id: u.id } });
+
+    // `req.user` here is the raw passport-JWT claim `{ email_id }` with no
+    // user_id or role, so we pass an explicit actor pulled from the loaded DB row.
+    recordActivity(req, {
+      action: "auth.login",
+      entity_type: "auth",
+      entity_id: u.id,
+      entity_label: u.display_name ? `${u.display_name} (${u.email})` : u.email,
+      metadata: { login_type: u.login_type },
+      actor: { user_id: u.id, email_id: u.email, role: u.role },
+    });
 
     return res
       .status(200)

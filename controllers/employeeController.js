@@ -1,6 +1,7 @@
 const Response = require("../classes/Response");
 const db = require("../config/db.config");
 const EMPLOYEE_CONSTANTS = require("../constants/employeeConstants");
+const { recordActivity } = require("./activityController");
 const {
   readUploadedFileBuffer,
   parseWorkbookRows,
@@ -8,6 +9,13 @@ const {
   sendXlsxDownload,
   str,
 } = require("./importHelpers");
+
+function employeeLabel(emp) {
+  if (!emp) return null;
+  const name = emp.name || "";
+  const empId = emp.emp_id || "";
+  return empId && name ? `${empId} · ${name}` : name || empId || null;
+}
 
 function uniqueViolationMessage(err) {
   const detail = err.parent?.detail || err.original?.detail || "";
@@ -25,6 +33,13 @@ function uniqueViolationMessage(err) {
 const createEmployee = async (req, res) => {
   try {
     const created = await db.employee.create(req.body);
+    recordActivity(req, {
+      action: "employee.create",
+      entity_type: "employee",
+      entity_id: created.id,
+      entity_label: employeeLabel(created),
+      metadata: { location: created.location ?? null },
+    });
     return res
       .status(201)
       .json(Response.sendResponse(true, created, EMPLOYEE_CONSTANTS.CREATED, 201));
@@ -82,6 +97,13 @@ const updateEmployee = async (req, res) => {
 
     await db.employee.update(rest, { where: { id } });
     const updated = await db.employee.findByPk(id);
+    recordActivity(req, {
+      action: "employee.update",
+      entity_type: "employee",
+      entity_id: id,
+      entity_label: employeeLabel(updated),
+      metadata: { changed_fields: Object.keys(rest) },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, EMPLOYEE_CONSTANTS.UPDATED, 200));
@@ -100,12 +122,19 @@ const updateEmployee = async (req, res) => {
 
 const deleteEmployee = async (req, res) => {
   try {
+    const existing = await db.employee.findByPk(req.params.id);
     const destroyed = await db.employee.destroy({ where: { id: req.params.id } });
     if (!destroyed) {
       return res
         .status(404)
         .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.NOT_FOUND, 404));
     }
+    recordActivity(req, {
+      action: "employee.delete",
+      entity_type: "employee",
+      entity_id: req.params.id,
+      entity_label: employeeLabel(existing),
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, destroyed, EMPLOYEE_CONSTANTS.DELETED, 200));
@@ -144,6 +173,13 @@ const markEmployeeLeft = async (req, res) => {
     );
 
     const updated = await db.employee.findByPk(existing.id);
+    recordActivity(req, {
+      action: "employee.mark_left",
+      entity_type: "employee",
+      entity_id: existing.id,
+      entity_label: employeeLabel(updated),
+      metadata: { reason, left_by: leftBy },
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, EMPLOYEE_CONSTANTS.LEFT_JOB, 200));
@@ -179,6 +215,12 @@ const rejoinEmployee = async (req, res) => {
     );
 
     const updated = await db.employee.findByPk(existing.id);
+    recordActivity(req, {
+      action: "employee.rejoin",
+      entity_type: "employee",
+      entity_id: existing.id,
+      entity_label: employeeLabel(updated),
+    });
     return res
       .status(200)
       .json(Response.sendResponse(true, updated, EMPLOYEE_CONSTANTS.REJOINED, 200));
@@ -280,6 +322,20 @@ const importEmployees = async (req, res) => {
       }
     }
 
+    if (created.length > 0) {
+      recordActivity(req, {
+        action: "employee.import",
+        entity_type: "employee",
+        entity_id: null,
+        entity_label: `Imported ${created.length} employee${created.length === 1 ? "" : "s"}`,
+        metadata: {
+          total_rows: rows.length,
+          created: created.length,
+          failed: errors.length,
+          created_items: created,
+        },
+      });
+    }
     return res.status(200).json(
       Response.sendResponse(
         true,

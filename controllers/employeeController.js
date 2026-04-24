@@ -160,6 +160,27 @@ const markEmployeeLeft = async (req, res) => {
         .json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.ALREADY_LEFT, 400));
     }
 
+    // Safety net — mirrors the UI's "return assets first" step so direct API
+    // callers can't mark someone as left while they're still holding company
+    // gear. Unassign explicitly through /assignment/{id}/unassign first.
+    const activeAssignments = await db.assignment.count({
+      where: { employee_id: existing.id, unassigned_at: null },
+    });
+    if (activeAssignments > 0) {
+      return res
+        .status(400)
+        .json(
+          Response.sendResponse(
+            false,
+            null,
+            `Employee still has ${activeAssignments} active asset assignment${
+              activeAssignments === 1 ? "" : "s"
+            }. Return them before marking as left.`,
+            400
+          )
+        );
+    }
+
     const reason = String(req.body.reason || "").trim();
     const leftBy = req.body.left_by ? String(req.body.left_by).trim() : null;
 

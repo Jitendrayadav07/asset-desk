@@ -4,7 +4,7 @@ const db = require("../config/db.config");
 const ASSET_CONSTANTS = require("../constants/assetConstants");
 const { recordActivity } = require("./activityController");
 const {
-  readUploadedFileBuffer,
+  readUploadedExcelBuffer,
   parseWorkbookRows,
   buildTemplateBuffer,
   sendXlsxDownload,
@@ -729,19 +729,13 @@ const downloadAssetTemplate = async (_req, res) => {
 
 const importAssets = async (req, res) => {
   try {
-    const buffer = readUploadedFileBuffer(req, "file");
-    if (!buffer) {
+    const upload = readUploadedExcelBuffer(req, "file");
+    if (upload.error) {
       return res
         .status(400)
-        .json(
-          Response.sendResponse(
-            false,
-            null,
-            "No file uploaded. Send the xlsx file as a multipart 'file' field.",
-            400
-          )
-        );
+        .json(Response.sendResponse(false, null, upload.error, 400));
     }
+    const buffer = upload.buffer;
 
     const rows = parseWorkbookRows(buffer);
     if (!rows.length) {

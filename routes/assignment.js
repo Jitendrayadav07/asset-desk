@@ -5,6 +5,11 @@ const assignmentController = require("../controllers/assignmentController");
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const assignmentValidation = require("../validations/assignmentValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireRole = require("../middlewares/rbac/requireRole");
+
+// HR-user is read-only on assignments — they can view the list, but cannot
+// create new assignments or unassign existing ones.
+const requireAssignmentWriter = requireRole("admin", "user");
 
 /**
  * @openapi
@@ -54,6 +59,7 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
 router.post(
   "/create-assignment",
   jwtMiddleware,
+  requireAssignmentWriter,
   JoiMiddleWare(assignmentValidation.createAssignment, "body"),
   assignmentController.createAssignment
 );
@@ -151,6 +157,7 @@ router.get(
 router.post(
   "/:id/unassign",
   jwtMiddleware,
+  requireAssignmentWriter,
   JoiMiddleWare(assignmentValidation.idParam, "params"),
   JoiMiddleWare(assignmentValidation.unassignBody, "body"),
   assignmentController.unassignAssignment

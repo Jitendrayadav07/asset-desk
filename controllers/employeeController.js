@@ -3,7 +3,7 @@ const db = require("../config/db.config");
 const EMPLOYEE_CONSTANTS = require("../constants/employeeConstants");
 const { recordActivity } = require("./activityController");
 const {
-  readUploadedFileBuffer,
+  readUploadedExcelBuffer,
   parseWorkbookRows,
   buildTemplateBuffer,
   sendXlsxDownload,
@@ -30,9 +30,23 @@ function uniqueViolationMessage(err) {
   return EMPLOYEE_CONSTANTS.ERROR_OCCURED;
 }
 
+// Mass-assignment guard: only fields in this allowlist are accepted from
+// the request body. Anything else (employment_status, deleted_at, audit
+// columns, etc.) is silently dropped.
+const EMPLOYEE_WRITABLE_FIELDS = ["name", "email", "location", "emp_id"];
+function pickEmployeeFields(body) {
+  const out = {};
+  for (const key of EMPLOYEE_WRITABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body || {}, key)) {
+      out[key] = body[key];
+    }
+  }
+  return out;
+}
+
 const createEmployee = async (req, res) => {
   try {
-    const created = await db.employee.create(req.body);
+    const created = await db.employee.create(pickEmployeeFields(req.body));
     recordActivity(req, {
       action: "employee.create",
       entity_type: "employee",
@@ -89,20 +103,21 @@ const findEmployeeById = async (req, res) => {
 
 const updateEmployee = async (req, res) => {
   try {
-    const { id, ...rest } = req.body;
+    const { id } = req.body;
     const existing = await db.employee.findByPk(id);
     if (!existing) {
       return res.status(404).json(Response.sendResponse(false, null, EMPLOYEE_CONSTANTS.NOT_FOUND, 404));
     }
 
-    await db.employee.update(rest, { where: { id } });
+    const patch = pickEmployeeFields(req.body);
+    await db.employee.update(patch, { where: { id } });
     const updated = await db.employee.findByPk(id);
     recordActivity(req, {
       action: "employee.update",
       entity_type: "employee",
       entity_id: id,
       entity_label: employeeLabel(updated),
-      metadata: { changed_fields: Object.keys(rest) },
+      metadata: { changed_fields: Object.keys(patch) },
     });
     return res
       .status(200)
@@ -288,19 +303,13 @@ function basicEmailValid(email) {
 
 const importEmployees = async (req, res) => {
   try {
-    const buffer = readUploadedFileBuffer(req, "file");
-    if (!buffer) {
+    const upload = readUploadedExcelBuffer(req, "file");
+    if (upload.error) {
       return res
         .status(400)
-        .json(
-          Response.sendResponse(
-            false,
-            null,
-            "No file uploaded. Send the xlsx file as a multipart 'file' field.",
-            400
-          )
-        );
+        .json(Response.sendResponse(false, null, upload.error, 400));
     }
+    const buffer = upload.buffer;
 
     const rows = parseWorkbookRows(buffer);
     if (!rows.length) {

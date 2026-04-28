@@ -1,6 +1,6 @@
 const Joi = require("joi");
 
-const ROLE_VALUES = ["admin", "user"];
+const ROLE_VALUES = ["admin", "user", "hr-user"];
 
 const userValidation = {
   createUser: Joi.object().keys({

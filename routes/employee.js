@@ -5,6 +5,12 @@ const employeeController = require("../controllers/employeeController");
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const employeeValidation = require("../validations/employeeValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireAdmin = require("../middlewares/rbac/requireAdmin");
+const requireRole = require("../middlewares/rbac/requireRole");
+
+// Regular `user` is read-only on the employee directory — managing
+// employees belongs to admin and hr-user.
+const requireEmployeeWriter = requireRole("admin", "hr-user");
 
 /**
  * @openapi
@@ -66,7 +72,7 @@ router.get("/import-template", jwtMiddleware, employeeController.downloadEmploye
  *       500:
  *         description: Server error
  */
-router.post("/import", jwtMiddleware, employeeController.importEmployees);
+router.post("/import", jwtMiddleware, requireEmployeeWriter, employeeController.importEmployees);
 
 /**
  * @openapi
@@ -95,6 +101,7 @@ router.post("/import", jwtMiddleware, employeeController.importEmployees);
 router.post(
   "/create-employee",
   jwtMiddleware,
+  requireEmployeeWriter,
   JoiMiddleWare(employeeValidation.createEmployee, "body"),
   employeeController.createEmployee
 );
@@ -187,6 +194,7 @@ router.get(
 router.put(
   "/",
   jwtMiddleware,
+  requireEmployeeWriter,
   JoiMiddleWare(employeeValidation.putEmployee, "body"),
   employeeController.updateEmployee
 );
@@ -194,6 +202,7 @@ router.put(
 router.delete(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(employeeValidation.deleteEmployee, "params"),
   employeeController.deleteEmployee
 );
@@ -246,6 +255,7 @@ router.delete(
 router.post(
   "/:id/left-job",
   jwtMiddleware,
+  requireEmployeeWriter,
   JoiMiddleWare(employeeValidation.lifecycleParams, "params"),
   JoiMiddleWare(employeeValidation.leftJobBody, "body"),
   employeeController.markEmployeeLeft
@@ -294,6 +304,7 @@ router.post(
 router.post(
   "/:id/rejoin",
   jwtMiddleware,
+  requireEmployeeWriter,
   JoiMiddleWare(employeeValidation.lifecycleParams, "params"),
   JoiMiddleWare(employeeValidation.rejoinBody, "body"),
   employeeController.rejoinEmployee

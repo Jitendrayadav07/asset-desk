@@ -5,6 +5,12 @@ const assetController = require("../controllers/assetController");
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const assetValidation = require("../validations/assetValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireAdmin = require("../middlewares/rbac/requireAdmin");
+const requireRole = require("../middlewares/rbac/requireRole");
+
+// HR-user has read-only access to assets — they can view, but cannot
+// create / edit / lifecycle. Use this on every mutation route.
+const requireAssetWriter = requireRole("admin", "user");
 
 /**
  * @openapi
@@ -69,7 +75,7 @@ router.get("/import-template", jwtMiddleware, assetController.downloadAssetTempl
  *       500:
  *         description: Server error
  */
-router.post("/import", jwtMiddleware, assetController.importAssets);
+router.post("/import", jwtMiddleware, requireAdmin, assetController.importAssets);
 
 /**
  * @openapi
@@ -108,6 +114,7 @@ router.post("/import", jwtMiddleware, assetController.importAssets);
 router.post(
   "/create-asset",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.createAsset, "body"),
   assetController.createAsset
 );
@@ -247,6 +254,7 @@ router.get(
 router.put(
   "/",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.putAsset, "body"),
   assetController.updateAsset
 );
@@ -254,6 +262,7 @@ router.put(
 router.delete(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetValidation.deleteAsset, "params"),
   assetController.deleteAsset
 );
@@ -306,6 +315,7 @@ router.delete(
 router.post(
   "/:id/retire",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.lifecycleParams, "params"),
   JoiMiddleWare(assetValidation.retireAssetBody, "body"),
   assetController.retireAsset
@@ -364,6 +374,7 @@ router.post(
 router.post(
   "/:id/report-missing",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.lifecycleParams, "params"),
   JoiMiddleWare(assetValidation.reportMissingBody, "body"),
   assetController.reportMissingAsset
@@ -416,6 +427,7 @@ router.post(
 router.post(
   "/:id/maintenance",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.lifecycleParams, "params"),
   JoiMiddleWare(assetValidation.maintenanceAssetBody, "body"),
   assetController.markMaintenanceAsset
@@ -465,6 +477,7 @@ router.post(
 router.post(
   "/:id/restore",
   jwtMiddleware,
+  requireAssetWriter,
   JoiMiddleWare(assetValidation.lifecycleParams, "params"),
   JoiMiddleWare(assetValidation.restoreAssetBody, "body"),
   assetController.restoreAsset

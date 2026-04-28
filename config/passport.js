@@ -14,6 +14,13 @@ if (MICROSOFT_CLIENT_ID && MICROSOFT_CLIENT_SECRET && REDIRECT_URL) {
       callbackURL: `${REDIRECT_URL}/api/auth/microsoft/callback`,
       tenant: MICROSOFT_TENANT_ID,
       scope: ["openid", "profile", "user.read"],
+      // NOTE: `state: true` would enable OAuth state CSRF protection, but
+      // it's incompatible with the current `saveUninitialized: false`
+      // session config — the state token isn't persisted to the session
+      // cookie before the redirect to Microsoft, causing every callback
+      // to fail. Re-enabling requires switching to a persistent session
+      // store (Redis / connect-pg-simple) and verifying the cookie round-
+      // trip end-to-end. Tracked for PR #3.
     },
     function (accessToken, refreshToken, profile, done) {
       done(null, profile);

@@ -5,6 +5,7 @@ const assetStatusController = require("../controllers/assetStatusController");
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const assetStatusSchema = require("../validations/assetStatusValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireAdmin = require("../middlewares/rbac/requireAdmin");
 
 /**
  * @openapi
@@ -45,6 +46,8 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
  */
 router.post(
   "/create-asset-status",
+  jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetStatusSchema.createAssetStatus, "body"),
   assetStatusController.createAssetStatus
 );
@@ -195,6 +198,7 @@ router.get(
 router.put(
   "/",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetStatusSchema.putAssetStatus, "body"),
   assetStatusController.updateAssetStatus
 );
@@ -202,6 +206,7 @@ router.put(
 router.delete(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetStatusSchema.deleteAssetStatus, "params"),
   assetStatusController.deleteAssetStatus
 );

@@ -5,6 +5,7 @@ const assetConditionController = require("../controllers/assetConditionControlle
 const JoiMiddleWare = require("../middlewares/joi/joiMiddleware");
 const assetConditionSchema = require("../validations/assetConditionValidation");
 const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
+const requireAdmin = require("../middlewares/rbac/requireAdmin");
 
 /**
  * @openapi
@@ -45,6 +46,8 @@ const jwtMiddleware = require("../middlewares/jsonwebtoken/jwtMiddleware");
  */
 router.post(
   "/create-asset-condition",
+  jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetConditionSchema.createAssetCondition, "body"),
   assetConditionController.createAssetCondition
 );
@@ -195,6 +198,7 @@ router.get(
 router.put(
   "/",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetConditionSchema.putAssetCondition, "body"),
   assetConditionController.updateAssetCondition
 );
@@ -202,6 +206,7 @@ router.put(
 router.delete(
   "/:id",
   jwtMiddleware,
+  requireAdmin,
   JoiMiddleWare(assetConditionSchema.deleteAssetCondition, "params"),
   assetConditionController.deleteAssetCondition
 );

@@ -140,7 +140,6 @@ const microsoftCallback = async (req, res) => {
 const microsoftLoginSuccess = async (req, res) => {
   try {
     const { email_id: emailId } = req.user || {};
-    console.log("emailId", emailId);
     if (!emailId) {
       return res
         .status(400)

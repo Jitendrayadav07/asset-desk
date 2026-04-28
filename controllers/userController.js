@@ -43,7 +43,7 @@ const createUser = async (req, res) => {
       given_name: req.body.given_name ? String(req.body.given_name).trim() : null,
       family_name: req.body.family_name ? String(req.body.family_name).trim() : null,
       is_active: req.body.is_active !== undefined ? Boolean(req.body.is_active) : true,
-      role: req.body.role === "admin" ? "admin" : "user",
+      role: ["admin", "hr-user", "user"].includes(req.body.role) ? req.body.role : "user",
       login_type: USER_CONSTANTS.LOGIN_TYPE.EMAIL,
     });
 

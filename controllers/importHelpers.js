@@ -1,37 +1,95 @@
 const fs = require("fs");
 const XLSX = require("xlsx");
 
-/**
- * Express-form-data (using formidable) stores uploaded files on either
- * `req.files` (pre-union) or `req.body` (post-union). Depending on the
- * formidable version the path property is `path` or `filepath`.
- * Normalizes everything to a Buffer.
- */
-function readUploadedFileBuffer(req, fieldName = "file") {
-  let file = null;
+// Hard cap for Excel uploads — a normal asset/employee template is well
+// under 1MB. We refuse anything larger to keep zip-bomb / DoS surface small.
+const MAX_EXCEL_BYTES = 5 * 1024 * 1024; // 5MB
+
+const ALLOWED_EXCEL_MIME = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // xlsx
+  "application/vnd.ms-excel", // xls
+  "application/octet-stream", // some browsers send this for xlsx
+]);
+
+const ALLOWED_EXCEL_EXTS = new Set([".xlsx", ".xls"]);
+
+// xlsx is a zip archive (PK\x03\x04); xls is OLE2 (D0CF11E0A1B11AE1).
+// Magic-byte check stops anyone from renaming a script to .xlsx.
+function looksLikeExcel(buf) {
+  if (!buf || buf.length < 8) return false;
+  const xlsxMagic = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+  const xlsMagic =
+    buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0 &&
+    buf[4] === 0xa1 && buf[5] === 0xb1 && buf[6] === 0x1a && buf[7] === 0xe1;
+  return xlsxMagic || xlsMagic;
+}
+
+function pickFile(req, fieldName) {
   if (req.files && req.files[fieldName]) {
-    file = Array.isArray(req.files[fieldName])
-      ? req.files[fieldName][0]
-      : req.files[fieldName];
-  } else if (req.body && req.body[fieldName]) {
-    file = req.body[fieldName];
+    return Array.isArray(req.files[fieldName]) ? req.files[fieldName][0] : req.files[fieldName];
   }
+  if (req.body && req.body[fieldName]) return req.body[fieldName];
+  return null;
+}
+
+/**
+ * Reads + validates an uploaded Excel file. Returns `{ buffer }` on success
+ * or `{ error }` on validation failure. Always cleans up the temp file.
+ */
+function readUploadedExcelBuffer(req, fieldName = "file") {
+  const file = pickFile(req, fieldName);
   if (!file) {
-    return null;
+    return { error: "No file uploaded. Send the xlsx file as a multipart 'file' field." };
   }
-  const path = file.filepath || file.path;
-  if (!path) return null;
+  const tmpPath = file.filepath || file.path;
+  const cleanup = () => {
+    if (!tmpPath) return;
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+  };
+  if (!tmpPath) {
+    return { error: "Upload failed: no readable file path." };
+  }
+
+  // Size: prefer the formidable-reported size (cheap, available pre-read).
+  const reportedSize = typeof file.size === "number" ? file.size : null;
+  if (reportedSize !== null && reportedSize > MAX_EXCEL_BYTES) {
+    cleanup();
+    return { error: "File too large. Maximum allowed size is 5 MB." };
+  }
+
+  // Extension allowlist.
+  const name = String(file.originalFilename || file.name || "").toLowerCase();
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot) : "";
+  if (ext && !ALLOWED_EXCEL_EXTS.has(ext)) {
+    cleanup();
+    return { error: "Only .xlsx and .xls files are accepted." };
+  }
+
+  // MIME allowlist (best-effort — browser-provided, not trustworthy on its own,
+  // but rejects obviously wrong types early).
+  const mime = String(file.mimetype || file.type || "").toLowerCase();
+  if (mime && !ALLOWED_EXCEL_MIME.has(mime)) {
+    cleanup();
+    return { error: "Unsupported file type. Upload an Excel (.xlsx) file." };
+  }
+
+  let buffer;
   try {
-    return fs.readFileSync(path);
+    buffer = fs.readFileSync(tmpPath);
   } catch {
-    return null;
-  } finally {
-    try {
-      fs.unlinkSync(path);
-    } catch {
-      /* ignore — cleanup best-effort */
-    }
+    cleanup();
+    return { error: "Could not read uploaded file." };
   }
+  cleanup();
+
+  if (buffer.length > MAX_EXCEL_BYTES) {
+    return { error: "File too large. Maximum allowed size is 5 MB." };
+  }
+  if (!looksLikeExcel(buffer)) {
+    return { error: "File does not look like a valid Excel workbook." };
+  }
+  return { buffer };
 }
 
 /** Parse a workbook buffer into an array of plain-object rows from the first sheet. */
@@ -105,7 +163,7 @@ function num(v) {
 }
 
 module.exports = {
-  readUploadedFileBuffer,
+  readUploadedExcelBuffer,
   parseWorkbookRows,
   buildTemplateBuffer,
   sendXlsxDownload,

@@ -50,6 +50,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATEONLY,
         allowNull: true,
       },
+      warranty_date: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
       price_usd: {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: true,

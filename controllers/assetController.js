@@ -86,6 +86,7 @@ const createAsset = async (req, res) => {
     body.asset_status_id = normalizeNullableFk(body.asset_status_id);
     body.asset_condition_id = normalizeNullableFk(body.asset_condition_id);
     body.purchase_date = normalizePurchaseDate(body.purchase_date);
+    body.warranty_date = normalizePurchaseDate(body.warranty_date);
     body.price_usd = normalizePrice(body.price_usd);
     body.model_number = body.model_number === "" ? null : body.model_number;
     body.configuration_specs =
@@ -206,6 +207,9 @@ const updateAsset = async (req, res) => {
     }
     if (rest.purchase_date !== undefined) {
       rest.purchase_date = normalizePurchaseDate(rest.purchase_date);
+    }
+    if (rest.warranty_date !== undefined) {
+      rest.warranty_date = normalizePurchaseDate(rest.warranty_date);
     }
     if (rest.price_usd !== undefined) {
       rest.price_usd = normalizePrice(rest.price_usd);
@@ -666,6 +670,7 @@ const ASSET_TEMPLATE_HEADERS = [
   "configuration_specs",
   "location",
   "purchase_date",
+  "warranty_date",
   "price_usd",
 ];
 
@@ -685,6 +690,7 @@ const downloadAssetTemplate = async (_req, res) => {
           "M3 Pro / 18GB / 512GB",
           "Pune",
           "2024-03-10",
+          "2027-03-10",
           2199,
         ],
         [
@@ -698,6 +704,7 @@ const downloadAssetTemplate = async (_req, res) => {
           "27\" / 4K / IPS Black",
           "Mumbai",
           "2023-06-10",
+          "",
           649,
         ],
       ],
@@ -706,7 +713,7 @@ const downloadAssetTemplate = async (_req, res) => {
         "",
         "Required columns: serial_number, asset_type, name_model, brand, location.",
         "Optional: asset_status, asset_condition (Purchase Type), model_number,",
-        "configuration_specs, purchase_date, price_usd.",
+        "configuration_specs, purchase_date, warranty_date, price_usd.",
         "",
         "asset_type / asset_status / asset_condition must match existing lookup names",
         "(case-insensitive). New imports default to asset_status=unassigned. Valid values:",
@@ -714,7 +721,9 @@ const downloadAssetTemplate = async (_req, res) => {
         "  asset_status: unassigned / maintenance / retired / missing",
         "  asset_condition (Purchase Type): new / refurbished",
         "",
-        "purchase_date format: YYYY-MM-DD (e.g. 2024-03-10). price_usd: plain number.",
+        "purchase_date / warranty_date format: YYYY-MM-DD (e.g. 2024-03-10).",
+        "warranty_date is optional — leave blank if not tracked.",
+        "price_usd: plain number.",
         "serial_number must be unique across the inventory.",
       ],
     });
@@ -775,6 +784,7 @@ const importAssets = async (req, res) => {
         const configuration_specs = str(raw.configuration_specs);
         const location = str(raw.location);
         const purchase_date = dateYMD(raw.purchase_date);
+        const warranty_date = dateYMD(raw.warranty_date);
         const price_usd = num(raw.price_usd);
 
         if (!serial_number) throw new Error("serial_number is required");
@@ -810,6 +820,7 @@ const importAssets = async (req, res) => {
           configuration_specs,
           location,
           purchase_date,
+          warranty_date,
           price_usd,
           is_used: false,
         });

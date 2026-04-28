@@ -6,6 +6,10 @@ const purchaseDateSchema = Joi.alternatives().try(
   Joi.valid(null)
 );
 
+// Same shape as purchase_date — accepts a YYYY-MM-DD string, an ISO date,
+// null, or omitted. Aliased so the intent reads cleanly at the call site.
+const warrantyDateSchema = purchaseDateSchema;
+
 const assetValidation = {
   createAsset: Joi.object().keys({
     serial_number: Joi.string().trim().required(),
@@ -18,6 +22,7 @@ const assetValidation = {
     configuration_specs: Joi.string().trim().optional().allow(null, ""),
     location: Joi.string().trim().required(),
     purchase_date: purchaseDateSchema.optional(),
+    warranty_date: warrantyDateSchema.optional(),
     price_usd: Joi.number().min(0).optional().allow(null),
   }),
 
@@ -44,6 +49,7 @@ const assetValidation = {
       configuration_specs: Joi.string().trim().optional().allow(null, ""),
       location: Joi.string().trim().optional(),
       purchase_date: purchaseDateSchema.optional(),
+      warranty_date: warrantyDateSchema.optional(),
       price_usd: Joi.number().min(0).optional().allow(null),
     })
     .min(2)
